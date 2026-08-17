@@ -1,5 +1,6 @@
-from fastapi import Depends, FastAPI
+from fastapi import Depends, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
@@ -91,11 +92,7 @@ def list_players(db: Session = Depends(get_db), next_n: int = 5):
     return out
 
 
-@app.get("/optimize")
-def optimize(db: Session = Depends(get_db)):
-    """Best possible 15-man squad + starting XI + captain for the upcoming
-    gameweek from scratch (MODEL_SPEC v1 scope — single gameweek, no existing
-    squad / transfer constraints)."""
+def _build_optimizer_pool(db: Session) -> tuple[list[OptimizerInput], dict[int, Team]]:
     players = db.query(Player).all()
     teams = {t.id: t for t in db.query(Team).all()}
     ratings = compute_team_ratings(db)
@@ -115,10 +112,56 @@ def optimize(db: Session = Depends(get_db)):
                 xp=xp,
             )
         )
+    return pool, teams
 
-    result = optimize_squad(pool)
-    for group in ("squad", "starting_xi", "bench"):
-        for row in result[group]:
+
+def _attach_team_names(result: dict, teams: dict[int, Team]) -> dict:
+    groups = ["squad", "starting_xi", "bench"]
+    for group in groups:
+        for row in result.get(group, []):
             row["team_short_name"] = teams[row["team_id"]].short_name
     result["captain"]["team_short_name"] = teams[result["captain"]["team_id"]].short_name
+    for pair in result.get("transfers", []):
+        pair["out"]["team_short_name"] = teams[pair["out"]["team_id"]].short_name
+        pair["in"]["team_short_name"] = teams[pair["in"]["team_id"]].short_name
     return result
+
+
+@app.get("/optimize")
+def optimize(db: Session = Depends(get_db)):
+    """Best possible 15-man squad + starting XI + captain for the upcoming
+    gameweek from scratch (MODEL_SPEC v1 scope — single gameweek, no existing
+    squad / transfer constraints)."""
+    pool, teams = _build_optimizer_pool(db)
+    result = optimize_squad(pool)
+    return _attach_team_names(result, teams)
+
+
+class TransferRequest(BaseModel):
+    squad_ids: list[int]
+    free_transfers: int = 1
+    max_transfers: int = 2
+
+
+@app.post("/optimize/transfers")
+def optimize_transfers(req: TransferRequest, db: Session = Depends(get_db)):
+    """Given an existing 15-man squad, suggest the highest-value transfers
+    (MODEL_SPEC v2 scope): budget is capped at the existing squad's own value,
+    transfer count is capped at max_transfers, and each transfer beyond
+    free_transfers costs a -4pt hit weighed against the xP gain."""
+    if len(req.squad_ids) != 15:
+        raise HTTPException(400, f"squad_ids must have exactly 15 players, got {len(req.squad_ids)}")
+
+    pool, teams = _build_optimizer_pool(db)
+    known_ids = {p.id for p in pool}
+    unknown = set(req.squad_ids) - known_ids
+    if unknown:
+        raise HTTPException(400, f"Unknown player id(s): {sorted(unknown)}")
+
+    result = optimize_squad(
+        pool,
+        existing_squad_ids=set(req.squad_ids),
+        free_transfers=req.free_transfers,
+        max_transfers=req.max_transfers,
+    )
+    return _attach_team_names(result, teams)

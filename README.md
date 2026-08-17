@@ -29,6 +29,7 @@ Endpoints:
 - `GET /teams` — team list
 - `GET /players?next_n=5` — player list with price/form/ownership and next N fixtures, each annotated with our own Elo-based difficulty (1-5) and clean-sheet probability
 - `GET /optimize` — best possible 15-man squad, starting XI, and captain for the upcoming gameweek (PuLP linear program, from scratch, v1 scope)
+- `POST /optimize/transfers` — given an existing squad (`{squad_ids: [...], free_transfers, max_transfers}`), suggest the highest-value transfers (v2 scope)
 
 ## Frontend setup
 
@@ -78,6 +79,27 @@ the bundled CBC binary works fine). See `_pick_solver()` in `optimizer.py`.
 `GET /optimize` returns the squad/starting XI/bench/captain/total cost/total xP. The frontend's
 `/optimize` page (linked from the dashboard) renders it as a pitch layout with a captain badge.
 
+## Optimizer v2 (transfer suggestions)
+
+`POST /optimize/transfers` (MODEL_SPEC v2 scope) takes an existing 15-man squad and finds the
+highest-value 1-2 transfers: budget is capped at the existing squad's own value (not the full
+£100m — no persisted "money in the bank" concept yet, a documented simplification), transfer
+count is capped at `max_transfers`, and each transfer beyond `free_transfers` costs a -4pt hit
+that the solver weighs against the xP gained (declines the transfer if the hit isn't worth it —
+verified this directly: a ~3.9xP upgrade was accepted at 1 free transfer but correctly declined
+at 0 free transfers, since -4 hit > 3.9 gain).
+
+There's no saved-squad/auth system yet (that's brief section 3 step 6, "Polish"), so the
+frontend's transfer UI treats whatever the "Build optimal squad" button just produced as the
+"current squad" to suggest transfers from — a reasonable stand-in until squads are persisted.
+
+**Bug caught and fixed during testing:** HiGHS returns binary variable values like
+`0.9999999999999997` rather than exact `1.0`, so an exact `value() == 1` filter (used to read
+out which players the solver selected) was silently dropping valid squad members — a squad
+sometimes came back with 11 players instead of 15. Fixed with a `> 0.5` tolerance check
+(`optimizer.py`). This affected both v1 and v2 silently; v1 happened not to trigger it in
+earlier testing, but the same fix applies to both.
+
 ## Fixture difficulty model
 
 `backend/app/fixture_difficulty.py` implements MODEL_SPEC section 2 instead of FPL's static 1-5
@@ -100,3 +122,4 @@ team, so difficulty differs only by home/away until real results come in — exp
 - [x] Dashboard (player list + Elo-based fixture difficulty color-coding)
 - [x] xP model v1 (form + fixture difficulty, ranks players by expected points)
 - [x] Optimizer v1 (PuLP: optimal 15-man squad + XI + captain, single gameweek)
+- [x] Optimizer v2 (transfer suggestions from an existing squad, budget/hit-aware)

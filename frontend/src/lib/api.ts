@@ -66,3 +66,35 @@ export async function fetchOptimalSquad(): Promise<OptimizeResult> {
   }
   return res.json();
 }
+
+export type TransferPair = { out: SquadPlayer; in: SquadPlayer };
+
+export type TransferResult = OptimizeResult & {
+  transfers: TransferPair[];
+  n_transfers: number;
+  hit_points: number;
+  gross_xp: number;
+  net_xp: number;
+};
+
+export async function fetchTransferSuggestions(
+  squadIds: number[],
+  freeTransfers: number,
+  maxTransfers: number
+): Promise<TransferResult> {
+  const res = await fetch(`${API_URL}/optimize/transfers`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      squad_ids: squadIds,
+      free_transfers: freeTransfers,
+      max_transfers: maxTransfers,
+    }),
+    cache: "no-store",
+  });
+  if (!res.ok) {
+    const body = await res.text();
+    throw new Error(`Failed to suggest transfers: ${res.status} ${body}`);
+  }
+  return res.json();
+}
