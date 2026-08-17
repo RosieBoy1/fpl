@@ -8,11 +8,11 @@ const POSITION_ORDER = ["GKP", "DEF", "MID", "FWD"] as const;
 
 function PlayerCard({ player }: { player: HorizonSquadPlayer }) {
   return (
-    <div className="flex min-w-[110px] flex-col items-center rounded border border-gray-200 bg-white px-2 py-2 text-center shadow-sm">
-      <div className="text-sm font-medium">{player.web_name}</div>
-      <div className="text-xs text-gray-500">{player.team_short_name}</div>
-      <div className="text-xs text-gray-400">£{player.cost_m.toFixed(1)}m</div>
-      <div className="text-xs font-semibold text-emerald-700">{player.xp_total.toFixed(2)} xP</div>
+    <div className="flex min-w-[110px] flex-col items-center rounded-lg border border-blue-100 bg-white px-2 py-2 text-center shadow-sm">
+      <div className="text-sm font-medium text-slate-800">{player.web_name}</div>
+      <div className="text-xs text-slate-500">{player.team_short_name}</div>
+      <div className="text-xs text-slate-400">£{player.cost_m.toFixed(1)}m</div>
+      <div className="text-xs font-semibold text-amber-700">{player.xp_total.toFixed(2)} xP</div>
     </div>
   );
 }
@@ -36,22 +36,27 @@ export default function HorizonPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 p-6 text-gray-900">
+    <div className="min-h-screen bg-gradient-to-b from-sky-50 via-blue-50 to-sky-50 p-6 text-slate-800">
       <div className="mx-auto max-w-4xl">
-        <div className="mb-1 flex items-center justify-between">
-          <h1 className="text-2xl font-bold">Multi-Gameweek Horizon</h1>
-          <Link href="/optimize" className="text-sm text-blue-600 hover:underline">
+        <div className="mb-6 flex items-start justify-between gap-4 rounded-xl border border-blue-100 border-b-4 border-b-amber-400 bg-white px-5 py-4 shadow-sm">
+          <div>
+            <h1 className="text-2xl font-bold text-slate-800">Multi-Gameweek Horizon</h1>
+            <p className="mt-1 text-sm text-slate-500">
+              One static squad/XI held across the next N gameweeks — the captain is
+              re-optimized independently each week (squad doesn&apos;t change, the armband
+              does), which naturally accounts for fixture swings across the horizon. Chip
+              usage (wildcard, bench boost, triple captain, free hit) isn&apos;t modeled —
+              each one changes the rules for a single week in a materially different way
+              and is a separate, larger piece of work.
+            </p>
+          </div>
+          <Link
+            href="/optimize"
+            className="shrink-0 text-sm font-medium text-blue-700 transition-colors hover:text-amber-600"
+          >
             &larr; Squad optimizer
           </Link>
         </div>
-        <p className="mb-6 text-sm text-gray-500">
-          One static squad/XI held across the next N gameweeks — the captain is
-          re-optimized independently each week (squad doesn&apos;t change, the armband
-          does), which naturally accounts for fixture swings across the horizon. Chip
-          usage (wildcard, bench boost, triple captain, free hit) isn&apos;t modeled —
-          each one changes the rules for a single week in a materially different way
-          and is a separate, larger piece of work.
-        </p>
 
         <div className="mb-6 flex items-center gap-3">
           <label className="flex items-center gap-2 text-sm">
@@ -62,20 +67,20 @@ export default function HorizonPage() {
               max={10}
               value={weeks}
               onChange={(e) => setWeeks(Number(e.target.value))}
-              className="w-16 rounded border border-gray-300 px-2 py-1"
+              className="w-16 rounded-lg border border-blue-200 bg-white px-2 py-1 shadow-sm"
             />
           </label>
           <button
             onClick={run}
             disabled={loading}
-            className="rounded bg-gray-900 px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
+            className="rounded-lg bg-amber-500 px-4 py-2 text-sm font-semibold text-slate-900 shadow-sm transition-colors hover:bg-amber-400 disabled:opacity-50"
           >
             {loading ? "Solving…" : "Build horizon squad"}
           </button>
         </div>
 
         {error && (
-          <div className="mb-6 rounded border border-red-300 bg-red-50 p-3 text-sm text-red-700">
+          <div className="mb-6 rounded-lg border border-red-300 bg-red-50 p-3 text-sm text-red-700">
             Couldn&apos;t optimize: {error}
           </div>
         )}
@@ -84,22 +89,22 @@ export default function HorizonPage() {
           <>
             <div className="mb-6 flex flex-wrap gap-6 text-sm">
               <div>
-                <span className="text-gray-500">Total cost: </span>
-                <span className="font-semibold">£{result.total_cost_m.toFixed(1)}m</span>
+                <span className="text-slate-500">Total cost: </span>
+                <span className="font-semibold text-slate-800">£{result.total_cost_m.toFixed(1)}m</span>
               </div>
               <div>
-                <span className="text-gray-500">
+                <span className="text-slate-500">
                   Total expected points (GWs {result.events[0]}-
                   {result.events[result.events.length - 1]}, with weekly captaincy):{" "}
                 </span>
-                <span className="font-semibold text-emerald-700">
+                <span className="font-semibold text-amber-700">
                   {result.total_horizon_xp.toFixed(2)}
                 </span>
               </div>
             </div>
 
-            <h2 className="mb-2 text-sm font-semibold uppercase text-gray-500">Starting XI</h2>
-            <div className="mb-6 flex flex-col gap-3 rounded-lg bg-emerald-50 p-4">
+            <h2 className="mb-2 text-sm font-semibold uppercase text-slate-500">Starting XI</h2>
+            <div className="mb-6 flex flex-col gap-3 rounded-xl border border-blue-100 bg-blue-50/60 p-4">
               {POSITION_ORDER.map((pos) => {
                 const players = result.starting_xi.filter((p) => p.position === pos);
                 if (players.length === 0) return null;
@@ -113,19 +118,19 @@ export default function HorizonPage() {
               })}
             </div>
 
-            <h2 className="mb-2 text-sm font-semibold uppercase text-gray-500">Bench</h2>
+            <h2 className="mb-2 text-sm font-semibold uppercase text-slate-500">Bench</h2>
             <div className="mb-8 flex flex-wrap gap-2">
               {result.bench.map((p) => (
                 <PlayerCard key={p.id} player={p} />
               ))}
             </div>
 
-            <h2 className="mb-2 text-sm font-semibold uppercase text-gray-500">
+            <h2 className="mb-2 text-sm font-semibold uppercase text-slate-500">
               Weekly captain schedule
             </h2>
-            <div className="overflow-x-auto rounded border border-gray-200 bg-white">
+            <div className="overflow-x-auto rounded-xl border border-blue-100 bg-white shadow-sm">
               <table className="w-full text-sm">
-                <thead className="bg-gray-100 text-left text-xs uppercase text-gray-500">
+                <thead className="bg-blue-50 text-left text-xs uppercase text-slate-500">
                   <tr>
                     <th className="px-3 py-2">Gameweek</th>
                     <th className="px-3 py-2">Captain</th>
@@ -135,11 +140,11 @@ export default function HorizonPage() {
                 </thead>
                 <tbody>
                   {result.weekly_captains.map((wc) => (
-                    <tr key={wc.event} className="border-t border-gray-100">
+                    <tr key={wc.event} className="border-t border-blue-50">
                       <td className="px-3 py-2">GW{wc.event}</td>
                       <td className="px-3 py-2 font-medium">{wc.captain_name}</td>
-                      <td className="px-3 py-2 text-gray-600">{wc.team_short_name}</td>
-                      <td className="px-3 py-2 text-right text-emerald-700">
+                      <td className="px-3 py-2 text-slate-600">{wc.team_short_name}</td>
+                      <td className="px-3 py-2 text-right text-amber-700">
                         {wc.xp_that_week.toFixed(2)}
                       </td>
                     </tr>
