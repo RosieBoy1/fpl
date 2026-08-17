@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import { fetchPlayers, type PlayerRow } from "@/lib/api";
 import { FixtureChip } from "@/components/FixtureChip";
 
@@ -49,7 +50,12 @@ export default function Home() {
   return (
     <div className="min-h-screen bg-gray-50 p-6 text-gray-900">
       <div className="mx-auto max-w-6xl">
-        <h1 className="mb-1 text-2xl font-bold">FPL Companion</h1>
+        <div className="mb-1 flex items-center justify-between">
+          <h1 className="text-2xl font-bold">FPL Companion</h1>
+          <Link href="/optimize" className="text-sm text-blue-600 hover:underline">
+            Squad optimizer &rarr;
+          </Link>
+        </div>
         <p className="mb-6 text-sm text-gray-500">
           Player dashboard — price, form, ownership, next 5 fixtures (colored by our own
           Elo-based difficulty model, not FPL&apos;s FDR).

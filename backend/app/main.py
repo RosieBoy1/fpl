@@ -4,9 +4,10 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.db import get_db
-from app.fixture_difficulty import compute_team_ratings, upcoming_fixture_difficulty
+from app.fixture_difficulty import compute_team_ratings, fixtures_by_team_map
 from app.ingest import refresh_all
 from app.models import Fixture, Player, Team
+from app.optimizer import OptimizerInput, optimize_squad
 from app.xp_model import expected_points_for_fixture, expected_points_over_horizon
 
 app = FastAPI(title="FPL Companion API")
@@ -49,15 +50,10 @@ def list_players(db: Session = Depends(get_db), next_n: int = 5):
     players = db.query(Player).all()
     teams = {t.id: t for t in db.query(Team).all()}
     ratings = compute_team_ratings(db)
-
-    fixtures_by_team: dict[int, list[dict]] = {}
+    fixtures_by_team = fixtures_by_team_map(db, ratings, {p.team_id for p in players}, n=next_n)
 
     out = []
     for p in players:
-        if p.team_id not in fixtures_by_team:
-            fixtures_by_team[p.team_id] = upcoming_fixture_difficulty(
-                db, ratings, p.team_id, n=next_n
-            )
         team = teams.get(p.team_id)
         next_fixtures = [
             {
@@ -93,3 +89,36 @@ def list_players(db: Session = Depends(get_db), next_n: int = 5):
 
     out.sort(key=lambda r: r["xp_next_n"], reverse=True)
     return out
+
+
+@app.get("/optimize")
+def optimize(db: Session = Depends(get_db)):
+    """Best possible 15-man squad + starting XI + captain for the upcoming
+    gameweek from scratch (MODEL_SPEC v1 scope — single gameweek, no existing
+    squad / transfer constraints)."""
+    players = db.query(Player).all()
+    teams = {t.id: t for t in db.query(Team).all()}
+    ratings = compute_team_ratings(db)
+    fixtures_by_team = fixtures_by_team_map(db, ratings, {p.team_id for p in players}, n=1)
+
+    pool = []
+    for p in players:
+        next_fixture = fixtures_by_team[p.team_id][0] if fixtures_by_team[p.team_id] else None
+        xp = expected_points_for_fixture(p, next_fixture) if next_fixture else 0.0
+        pool.append(
+            OptimizerInput(
+                id=p.id,
+                web_name=p.web_name,
+                team_id=p.team_id,
+                position=p.position,
+                cost_m=p.now_cost / 10,
+                xp=xp,
+            )
+        )
+
+    result = optimize_squad(pool)
+    for group in ("squad", "starting_xi", "bench"):
+        for row in result[group]:
+            row["team_short_name"] = teams[row["team_id"]].short_name
+    result["captain"]["team_short_name"] = teams[result["captain"]["team_id"]].short_name
+    return result

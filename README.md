@@ -28,6 +28,7 @@ Endpoints:
 - `POST /refresh` — re-pull FPL data and upsert (idempotent — safe to call repeatedly)
 - `GET /teams` — team list
 - `GET /players?next_n=5` — player list with price/form/ownership and next N fixtures, each annotated with our own Elo-based difficulty (1-5) and clean-sheet probability
+- `GET /optimize` — best possible 15-man squad, starting XI, and captain for the upcoming gameweek (PuLP linear program, from scratch, v1 scope)
 
 ## Frontend setup
 
@@ -59,6 +60,24 @@ module docstring):
 per-fixture `xp`, and is sorted by `xp_next_n` by default. The dashboard has an "xP (5)" column
 and defaults to sorting by it, surfacing the most attractive players per the brief.
 
+## Optimizer v1
+
+`backend/app/optimizer.py` builds the optimal 15-man squad from scratch via a PuLP linear
+program: maximize starting-XI xP + captain's xP (doubled), subject to £100.0m budget, exactly
+2 GKP/5 DEF/5 MID/3 FWD in the squad, max 3 players per real team, 11 starters in a valid
+formation (1 GKP, 3-5 DEF, 2-5 MID, 1-3 FWD), and exactly 1 captain drawn from the starters.
+v1 scope is single-gameweek (uses each player's next-fixture xP, not the 5-GW horizon) — squad
+transfer suggestions and multi-gameweek horizon are v2/v3, per MODEL_SPEC.
+
+**Solver note:** PuLP's bundled CBC binary is x86_64-only for macOS; this dev machine is Apple
+Silicon with no Rosetta installed, so CBC failed with "Bad CPU type in executable". Fixed by
+preferring HiGHS (via the `highspy` Python bindings — a native compiled extension, no external
+subprocess) when available, falling back to CBC otherwise (e.g. on Render's Linux hosts, where
+the bundled CBC binary works fine). See `_pick_solver()` in `optimizer.py`.
+
+`GET /optimize` returns the squad/starting XI/bench/captain/total cost/total xP. The frontend's
+`/optimize` page (linked from the dashboard) renders it as a pitch layout with a captain badge.
+
 ## Fixture difficulty model
 
 `backend/app/fixture_difficulty.py` implements MODEL_SPEC section 2 instead of FPL's static 1-5
@@ -80,4 +99,4 @@ team, so difficulty differs only by home/away until real results come in — exp
 - [x] Data pipeline (teams, players, fixtures from FPL API → Postgres/SQLite, verified idempotent)
 - [x] Dashboard (player list + Elo-based fixture difficulty color-coding)
 - [x] xP model v1 (form + fixture difficulty, ranks players by expected points)
-- [ ] Optimizer v1
+- [x] Optimizer v1 (PuLP: optimal 15-man squad + XI + captain, single gameweek)

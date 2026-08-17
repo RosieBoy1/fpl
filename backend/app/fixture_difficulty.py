@@ -118,3 +118,9 @@ def upcoming_fixture_difficulty(
             }
         )
     return out
+
+
+def fixtures_by_team_map(
+    db: Session, ratings: dict[int, TeamRating], team_ids: set[int], n: int = 5
+) -> dict[int, list[dict]]:
+    return {tid: upcoming_fixture_difficulty(db, ratings, tid, n=n) for tid in team_ids}

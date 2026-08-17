@@ -30,12 +30,39 @@ export type PlayerRow = {
   next_fixtures: FixtureDifficulty[];
 };
 
+export type SquadPlayer = {
+  id: number;
+  web_name: string;
+  team_id: number;
+  team_short_name: string;
+  position: "GKP" | "DEF" | "MID" | "FWD";
+  cost_m: number;
+  xp: number;
+};
+
+export type OptimizeResult = {
+  squad: SquadPlayer[];
+  starting_xi: SquadPlayer[];
+  bench: SquadPlayer[];
+  captain: SquadPlayer;
+  total_cost_m: number;
+  total_xp: number;
+};
+
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 
 export async function fetchPlayers(): Promise<PlayerRow[]> {
   const res = await fetch(`${API_URL}/players`, { cache: "no-store" });
   if (!res.ok) {
     throw new Error(`Failed to fetch players: ${res.status}`);
+  }
+  return res.json();
+}
+
+export async function fetchOptimalSquad(): Promise<OptimizeResult> {
+  const res = await fetch(`${API_URL}/optimize`, { cache: "no-store" });
+  if (!res.ok) {
+    throw new Error(`Failed to optimize squad: ${res.status}`);
   }
   return res.json();
 }
