@@ -7,6 +7,7 @@ from app.db import get_db
 from app.fixture_difficulty import compute_team_ratings, upcoming_fixture_difficulty
 from app.ingest import refresh_all
 from app.models import Fixture, Player, Team
+from app.xp_model import expected_points_for_fixture, expected_points_over_horizon
 
 app = FastAPI(title="FPL Companion API")
 
@@ -64,6 +65,7 @@ def list_players(db: Session = Depends(get_db), next_n: int = 5):
                 "opponent_short_name": teams[f["opponent_id"]].short_name
                 if f["opponent_id"] in teams
                 else "?",
+                "xp": expected_points_for_fixture(p, f),
             }
             for f in fixtures_by_team[p.team_id]
         ]
@@ -84,9 +86,10 @@ def list_players(db: Session = Depends(get_db), next_n: int = 5):
                 "selected_by_percent": p.selected_by_percent,
                 "status": p.status,
                 "news": p.news,
+                "xp_next_n": expected_points_over_horizon(p, fixtures_by_team[p.team_id]),
                 "next_fixtures": next_fixtures,
             }
         )
 
-    out.sort(key=lambda r: r["total_points"], reverse=True)
+    out.sort(key=lambda r: r["xp_next_n"], reverse=True)
     return out

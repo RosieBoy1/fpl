@@ -4,10 +4,11 @@ import { useEffect, useMemo, useState } from "react";
 import { fetchPlayers, type PlayerRow } from "@/lib/api";
 import { FixtureChip } from "@/components/FixtureChip";
 
-type SortKey = "total_points" | "form" | "now_cost_m" | "selected_by_percent";
+type SortKey = "xp_next_n" | "total_points" | "form" | "now_cost_m" | "selected_by_percent";
 type PositionFilter = "ALL" | "GKP" | "DEF" | "MID" | "FWD";
 
 const SORT_LABELS: Record<SortKey, string> = {
+  xp_next_n: "Expected points (next 5)",
   total_points: "Total points",
   form: "Form",
   now_cost_m: "Price",
@@ -19,7 +20,7 @@ export default function Home() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [position, setPosition] = useState<PositionFilter>("ALL");
-  const [sortKey, setSortKey] = useState<SortKey>("total_points");
+  const [sortKey, setSortKey] = useState<SortKey>("xp_next_n");
   const [search, setSearch] = useState("");
 
   useEffect(() => {
@@ -117,6 +118,7 @@ export default function Home() {
                   <th className="px-3 py-2 text-right">Form</th>
                   <th className="px-3 py-2 text-right">Pts</th>
                   <th className="px-3 py-2 text-right">Own %</th>
+                  <th className="px-3 py-2 text-right">xP (5)</th>
                   <th className="px-3 py-2">Next 5</th>
                 </tr>
               </thead>
@@ -138,6 +140,9 @@ export default function Home() {
                     <td className="px-3 py-2 text-right">{p.total_points}</td>
                     <td className="px-3 py-2 text-right">
                       {p.selected_by_percent.toFixed(1)}%
+                    </td>
+                    <td className="px-3 py-2 text-right font-medium text-emerald-700">
+                      {p.xp_next_n.toFixed(1)}
                     </td>
                     <td className="px-3 py-2">
                       <div className="flex gap-1">

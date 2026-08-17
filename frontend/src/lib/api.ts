@@ -8,6 +8,7 @@ export type FixtureDifficulty = {
   expected_goals_against: number;
   clean_sheet_probability: number;
   difficulty: 1 | 2 | 3 | 4 | 5;
+  xp: number;
 };
 
 export type PlayerRow = {
@@ -25,6 +26,7 @@ export type PlayerRow = {
   selected_by_percent: number;
   status: string;
   news: string;
+  xp_next_n: number;
   next_fixtures: FixtureDifficulty[];
 };
 

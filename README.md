@@ -41,6 +41,24 @@ npm run dev
 Dashboard at `http://localhost:3000`: player table with search, position filter, sort, and
 next-5-fixture chips color-coded by difficulty.
 
+## xP model v1
+
+`backend/app/xp_model.py` implements MODEL_SPEC section 1. Notable v1 calls (documented in the
+module docstring):
+- No current-season gameweek history exists yet (preseason), so "last 5 GW minutes" and rolling
+  xG/xA fall back to last season's aggregates until real in-season data accumulates.
+- xG90/xA90 come from FPL's own `expected_goals_per_90` / `expected_assists_per_90` fields
+  instead of scraping Understat — same underlying stat, official source, no scrape fragility.
+- `defensive_contribution_per_90` (FPL's own CBIT/CBIRT stat) resolves the DefCon data-sourcing
+  gap MODEL_SPEC flagged — no FBref scraping needed.
+- FPL's per-90 fields have no minimum-minutes floor, so a player with e.g. 2 minutes and one
+  shot could show `xg90=3.6`. Fixed by shrinking all per-90-derived inputs toward 0 in
+  proportion to minutes sample size (`_sample_weight`, floor at ~270 minutes / 3 full matches).
+
+`GET /players` now returns `xp_next_n` (summed expected points over the next N fixtures) and
+per-fixture `xp`, and is sorted by `xp_next_n` by default. The dashboard has an "xP (5)" column
+and defaults to sorting by it, surfacing the most attractive players per the brief.
+
 ## Fixture difficulty model
 
 `backend/app/fixture_difficulty.py` implements MODEL_SPEC section 2 instead of FPL's static 1-5
@@ -61,5 +79,5 @@ team, so difficulty differs only by home/away until real results come in — exp
 
 - [x] Data pipeline (teams, players, fixtures from FPL API → Postgres/SQLite, verified idempotent)
 - [x] Dashboard (player list + Elo-based fixture difficulty color-coding)
-- [ ] xP model v1
+- [x] xP model v1 (form + fixture difficulty, ranks players by expected points)
 - [ ] Optimizer v1
