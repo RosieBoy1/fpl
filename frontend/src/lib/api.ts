@@ -98,3 +98,52 @@ export async function fetchTransferSuggestions(
   }
   return res.json();
 }
+
+export type SavedSquadSummary = {
+  id: number;
+  name: string;
+  player_ids: number[];
+  created_at: string;
+  updated_at: string;
+};
+
+export type SavedSquadDetail = SavedSquadSummary & {
+  players: {
+    id: number;
+    web_name: string;
+    team_id: number;
+    team_short_name: string;
+    position: "GKP" | "DEF" | "MID" | "FWD";
+    cost_m: number;
+  }[];
+};
+
+export async function saveSquad(name: string, playerIds: number[]): Promise<SavedSquadSummary> {
+  const res = await fetch(`${API_URL}/squads`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ name, player_ids: playerIds }),
+  });
+  if (!res.ok) {
+    const body = await res.text();
+    throw new Error(`Failed to save squad: ${res.status} ${body}`);
+  }
+  return res.json();
+}
+
+export async function fetchSavedSquads(): Promise<SavedSquadSummary[]> {
+  const res = await fetch(`${API_URL}/squads`, { cache: "no-store" });
+  if (!res.ok) throw new Error(`Failed to fetch saved squads: ${res.status}`);
+  return res.json();
+}
+
+export async function fetchSavedSquad(id: number): Promise<SavedSquadDetail> {
+  const res = await fetch(`${API_URL}/squads/${id}`, { cache: "no-store" });
+  if (!res.ok) throw new Error(`Failed to fetch squad ${id}: ${res.status}`);
+  return res.json();
+}
+
+export async function deleteSavedSquad(id: number): Promise<void> {
+  const res = await fetch(`${API_URL}/squads/${id}`, { method: "DELETE" });
+  if (!res.ok) throw new Error(`Failed to delete squad ${id}: ${res.status}`);
+}

@@ -30,6 +30,7 @@ Endpoints:
 - `GET /players?next_n=5` — player list with price/form/ownership and next N fixtures, each annotated with our own Elo-based difficulty (1-5) and clean-sheet probability
 - `GET /optimize` — best possible 15-man squad, starting XI, and captain for the upcoming gameweek (PuLP linear program, from scratch, v1 scope)
 - `POST /optimize/transfers` — given an existing squad (`{squad_ids: [...], free_transfers, max_transfers}`), suggest the highest-value transfers (v2 scope)
+- `POST /squads`, `GET /squads`, `GET /squads/{id}`, `DELETE /squads/{id}` — save/list/load/delete a 15-man squad (single-user, no auth)
 
 ## Frontend setup
 
@@ -100,6 +101,17 @@ sometimes came back with 11 players instead of 15. Fixed with a `> 0.5` toleranc
 (`optimizer.py`). This affected both v1 and v2 silently; v1 happened not to trigger it in
 earlier testing, but the same fix applies to both.
 
+## Saved squads
+
+Brief section 3 step 6 ("Polish") lists auth (optional) and saved squads. Auth is skipped for
+now (single-user, matches "optional"), but saved squads are implemented since the transfer
+suggester is only actually useful if you can reuse a squad across sessions instead of always
+suggesting transfers for whatever you just built from scratch. `SavedSquad` (`models.py`) stores
+a name + 15 FPL player ids; `/squads` CRUD endpoints validate the id count and that all ids
+exist. The `/optimize` page's "Suggest transfers" section operates on an "active squad" that's
+either the just-built optimal squad or a loaded saved squad — save one, then later load it back
+and ask for transfer suggestions against it.
+
 ## Fixture difficulty model
 
 `backend/app/fixture_difficulty.py` implements MODEL_SPEC section 2 instead of FPL's static 1-5
@@ -123,3 +135,4 @@ team, so difficulty differs only by home/away until real results come in — exp
 - [x] xP model v1 (form + fixture difficulty, ranks players by expected points)
 - [x] Optimizer v1 (PuLP: optimal 15-man squad + XI + captain, single gameweek)
 - [x] Optimizer v2 (transfer suggestions from an existing squad, budget/hit-aware)
+- [x] Saved squads (single-user persistence so transfer suggestions work across sessions)

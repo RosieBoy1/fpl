@@ -3,7 +3,7 @@ from __future__ import annotations
 import datetime
 from typing import Optional
 
-from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Integer, String
+from sqlalchemy import JSON, Boolean, DateTime, Float, ForeignKey, Integer, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db import Base
@@ -107,3 +107,19 @@ class Fixture(Base):
 
     team_h: Mapped["Team"] = relationship(foreign_keys=[team_h_id])
     team_a: Mapped["Team"] = relationship(foreign_keys=[team_a_id])
+
+
+class SavedSquad(Base):
+    """Single-user squad persistence (no auth yet — brief step 6 marks auth as
+    optional). Lets the transfer suggester (/optimize/transfers) work on a squad
+    saved from a previous session instead of only one just built in-page."""
+
+    __tablename__ = "saved_squads"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    name: Mapped[str] = mapped_column(String, nullable=False)
+    player_ids: Mapped[list] = mapped_column(JSON, nullable=False)  # 15 FPL player ids
+    created_at: Mapped[datetime.datetime] = mapped_column(DateTime, default=datetime.datetime.utcnow)
+    updated_at: Mapped[datetime.datetime] = mapped_column(
+        DateTime, default=datetime.datetime.utcnow, onupdate=datetime.datetime.utcnow
+    )

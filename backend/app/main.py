@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 from app.db import get_db
 from app.fixture_difficulty import compute_team_ratings, fixtures_by_team_map
 from app.ingest import refresh_all
-from app.models import Fixture, Player, Team
+from app.models import Fixture, Player, SavedSquad, Team
 from app.optimizer import OptimizerInput, optimize_squad
 from app.xp_model import expected_points_for_fixture, expected_points_over_horizon
 
@@ -165,3 +165,72 @@ def optimize_transfers(req: TransferRequest, db: Session = Depends(get_db)):
         max_transfers=req.max_transfers,
     )
     return _attach_team_names(result, teams)
+
+
+class SaveSquadRequest(BaseModel):
+    name: str
+    player_ids: list[int]
+
+
+def _squad_summary(s: SavedSquad) -> dict:
+    return {
+        "id": s.id,
+        "name": s.name,
+        "player_ids": s.player_ids,
+        "created_at": s.created_at,
+        "updated_at": s.updated_at,
+    }
+
+
+@app.post("/squads")
+def save_squad(req: SaveSquadRequest, db: Session = Depends(get_db)):
+    if len(req.player_ids) != 15:
+        raise HTTPException(400, f"player_ids must have exactly 15 players, got {len(req.player_ids)}")
+    known_ids = {pid for (pid,) in db.query(Player.id).all()}
+    unknown = set(req.player_ids) - known_ids
+    if unknown:
+        raise HTTPException(400, f"Unknown player id(s): {sorted(unknown)}")
+
+    squad = SavedSquad(name=req.name, player_ids=req.player_ids)
+    db.add(squad)
+    db.commit()
+    db.refresh(squad)
+    return _squad_summary(squad)
+
+
+@app.get("/squads")
+def list_squads(db: Session = Depends(get_db)):
+    squads = db.query(SavedSquad).order_by(SavedSquad.updated_at.desc()).all()
+    return [_squad_summary(s) for s in squads]
+
+
+@app.get("/squads/{squad_id}")
+def get_squad(squad_id: int, db: Session = Depends(get_db)):
+    squad = db.get(SavedSquad, squad_id)
+    if squad is None:
+        raise HTTPException(404, "Squad not found")
+
+    players = db.query(Player).filter(Player.id.in_(squad.player_ids)).all()
+    teams = {t.id: t for t in db.query(Team).all()}
+    players_out = [
+        {
+            "id": p.id,
+            "web_name": p.web_name,
+            "team_id": p.team_id,
+            "team_short_name": teams[p.team_id].short_name,
+            "position": p.position,
+            "cost_m": p.now_cost / 10,
+        }
+        for p in players
+    ]
+    return {**_squad_summary(squad), "players": players_out}
+
+
+@app.delete("/squads/{squad_id}")
+def delete_squad(squad_id: int, db: Session = Depends(get_db)):
+    squad = db.get(SavedSquad, squad_id)
+    if squad is None:
+        raise HTTPException(404, "Squad not found")
+    db.delete(squad)
+    db.commit()
+    return {"deleted": squad_id}
