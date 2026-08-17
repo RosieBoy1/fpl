@@ -7,6 +7,7 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.accuracy import get_accuracy, snapshot_predictions
+from app.config import settings
 from app.db import get_db
 from app.fixture_difficulty import compute_team_ratings, fixtures_by_team_map
 from app.ingest import refresh_all
@@ -18,7 +19,9 @@ app = FastAPI(title="FPL Companion API")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000"],
+    # Always allow local dev regardless of FRONTEND_URL, so a deployed
+    # FRONTEND_URL doesn't accidentally lock out `npm run dev`.
+    allow_origins=list({settings.frontend_url, "http://localhost:3000"}),
     allow_methods=["*"],
     allow_headers=["*"],
 )

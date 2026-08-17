@@ -47,6 +47,35 @@ npm run dev
 Dashboard at `http://localhost:3000`: player table with search, position filter, sort, and
 next-5-fixture chips color-coded by difficulty.
 
+## Deployment (render.yaml)
+
+`render.yaml` at the repo root is a Render Blueprint defining all three pieces: the FastAPI
+backend and Next.js frontend as web services, plus a managed Postgres database, wired together
+via env vars. Deploy with Render's **New +** → **Blueprint**, pointed at this repo.
+
+- **`DATABASE_URL`** is wired automatically from the `fpl-db` database's connection string
+  (`fromDatabase`). `Settings` (`config.py`) normalizes a `postgres://` scheme to `postgresql://`
+  if the provider ever hands one back — SQLAlchemy 1.4+ rejects the old scheme.
+- **Migrations run on every deploy**, before the app starts serving: the backend's
+  `startCommand` chains `alembic upgrade head && uvicorn ...`, so the Postgres schema gets
+  created automatically on first deploy with no manual step. Verified locally by running that
+  exact command against a fresh, empty SQLite DB — all 3 migrations applied cleanly and the API
+  came up serving correctly afterward.
+- **`FRONTEND_URL`** (backend) and **`NEXT_PUBLIC_API_URL`** (frontend) are set to each other's
+  predictable `https://<service-name>.onrender.com` URLs, derived from this file's `name:`
+  fields — Render's blueprint spec has no way to interpolate a full URL from `fromService`
+  (only bare hostname), so this is the standard pragmatic approach. If you rename a service or
+  attach a custom domain, update the other service's matching env var. CORS
+  (`main.py`) always allows `localhost:3000` in addition to `FRONTEND_URL`, so local dev isn't
+  affected by whatever's deployed.
+- `NEXT_PUBLIC_API_URL` is a **build-time** value (Next.js inlines `NEXT_PUBLIC_*` vars into the
+  client bundle at `next build`, not read at runtime) — Render exposes a service's `envVars` to
+  its own build step, so this works without extra wiring. Verified locally: built the frontend
+  with `NEXT_PUBLIC_API_URL=https://fpl-backend.onrender.com` set and confirmed that exact string
+  (not the local `.env.local` value) landed in the compiled JS output.
+- **Free-tier note**: Render's free Postgres databases are deleted 30 days after creation unless
+  upgraded to a paid plan — fine for evaluating this, not for leaving it running long-term.
+
 ## xP model v1
 
 `backend/app/xp_model.py` implements MODEL_SPEC section 1. Notable v1 calls (documented in the
