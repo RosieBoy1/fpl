@@ -184,3 +184,43 @@ export async function fetchHorizonSquad(weeks: number): Promise<HorizonResult> {
   }
   return res.json();
 }
+
+export type SnapshotResult = { event: number; players_snapshotted: number };
+
+export async function snapshotPredictions(event: number): Promise<SnapshotResult> {
+  const res = await fetch(`${API_URL}/predictions/snapshot?event=${event}`, { method: "POST" });
+  if (!res.ok) {
+    const body = await res.text();
+    throw new Error(`Failed to snapshot predictions: ${res.status} ${body}`);
+  }
+  return res.json();
+}
+
+export type AccuracyRow = {
+  player_id: number;
+  web_name: string;
+  predicted_xp: number;
+  actual_points: number;
+  error: number;
+};
+
+export type AccuracyResult = {
+  event: number;
+  finished: boolean;
+  message?: string;
+  n_players?: number;
+  mae?: number;
+  rmse?: number;
+  bias?: number;
+  correlation?: number | null;
+  predictions?: AccuracyRow[];
+};
+
+export async function fetchAccuracy(event: number): Promise<AccuracyResult> {
+  const res = await fetch(`${API_URL}/predictions/accuracy?event=${event}`, { cache: "no-store" });
+  if (!res.ok) {
+    const body = await res.text();
+    throw new Error(`Failed to fetch accuracy: ${res.status} ${body}`);
+  }
+  return res.json();
+}

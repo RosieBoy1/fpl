@@ -4,6 +4,7 @@ from pydantic import BaseModel
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
+from app.accuracy import get_accuracy, snapshot_predictions
 from app.db import get_db
 from app.fixture_difficulty import compute_team_ratings, fixtures_by_team_map
 from app.ingest import refresh_all
@@ -282,3 +283,22 @@ def delete_squad(squad_id: int, db: Session = Depends(get_db)):
     db.delete(squad)
     db.commit()
     return {"deleted": squad_id}
+
+
+@app.post("/predictions/snapshot")
+def snapshot_predictions_endpoint(event: int, db: Session = Depends(get_db)):
+    """Record each player's current predicted xP for `event`. Idempotent — call
+    again before the gameweek locks to refresh with the latest data. Historical
+    model accuracy tracking (brief step 6) only works for gameweeks snapshotted
+    before they finished, so this needs to run pre-deadline, not after."""
+    ratings = compute_team_ratings(db)
+    n = snapshot_predictions(db, event, ratings)
+    return {"event": event, "players_snapshotted": n}
+
+
+@app.get("/predictions/accuracy")
+def prediction_accuracy(event: int, db: Session = Depends(get_db)):
+    """Compare snapshotted predictions for `event` against actual FPL points,
+    once that gameweek has finished. Returns finished=False with an
+    explanatory message if the gameweek hasn't finished or wasn't snapshotted."""
+    return get_accuracy(db, event)

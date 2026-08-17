@@ -3,7 +3,7 @@ from __future__ import annotations
 import datetime
 from typing import Optional
 
-from sqlalchemy import JSON, Boolean, DateTime, Float, ForeignKey, Integer, String
+from sqlalchemy import JSON, Boolean, DateTime, Float, ForeignKey, Integer, String, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db import Base
@@ -121,5 +121,23 @@ class SavedSquad(Base):
     player_ids: Mapped[list] = mapped_column(JSON, nullable=False)  # 15 FPL player ids
     created_at: Mapped[datetime.datetime] = mapped_column(DateTime, default=datetime.datetime.utcnow)
     updated_at: Mapped[datetime.datetime] = mapped_column(
+        DateTime, default=datetime.datetime.utcnow, onupdate=datetime.datetime.utcnow
+    )
+
+
+class PredictionSnapshot(Base):
+    """A recorded xP prediction for one player in one gameweek, taken before that
+    gameweek's results are known. Compared against actual FPL points once the
+    gameweek finishes (see app/accuracy.py) to track real model accuracy over
+    time — brief step 6's "historical model accuracy tracking"."""
+
+    __tablename__ = "prediction_snapshots"
+    __table_args__ = (UniqueConstraint("player_id", "event", name="uq_prediction_player_event"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    player_id: Mapped[int] = mapped_column(ForeignKey("players.id"), nullable=False)
+    event: Mapped[int] = mapped_column(Integer, nullable=False)  # gameweek number
+    predicted_xp: Mapped[float] = mapped_column(Float, nullable=False)
+    recorded_at: Mapped[datetime.datetime] = mapped_column(
         DateTime, default=datetime.datetime.utcnow, onupdate=datetime.datetime.utcnow
     )

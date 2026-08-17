@@ -32,6 +32,8 @@ Endpoints:
 - `POST /optimize/transfers` — given an existing squad (`{squad_ids: [...], free_transfers, max_transfers}`), suggest the highest-value transfers (v2 scope)
 - `POST /squads`, `GET /squads`, `GET /squads/{id}`, `DELETE /squads/{id}` — save/list/load/delete a 15-man squad (single-user, no auth)
 - `GET /optimize/horizon?weeks=5` — one static squad/XI held across the next `weeks` gameweeks, captain re-optimized per gameweek (v3, partial — see below)
+- `POST /predictions/snapshot?event=N` — record current xP predictions for gameweek N (idempotent, call again before the deadline to refresh)
+- `GET /predictions/accuracy?event=N` — compare snapshotted predictions against actual FPL points once gameweek N has finished (MAE/RMSE/bias/correlation)
 
 ## Frontend setup
 
@@ -135,6 +137,27 @@ wildcard removes the transfer-hit constraint for one week; bench boost counts th
 triple captain triples instead of doubles) — genuinely separate logic per chip, not a small
 extension of the horizon optimizer above. Left for a future pass.
 
+## Historical model accuracy tracking
+
+Brief step 6's last item. `PredictionSnapshot` (`models.py`) records each player's predicted xP
+for a specific gameweek before it locks; `app/accuracy.py` compares those against actual FPL
+points once that gameweek finishes (pulled from FPL's `/event/{N}/live/` endpoint), computing
+MAE, RMSE, bias (mean predicted − actual — positive means the model overpredicts), and Pearson
+correlation (implemented by hand since `statistics.correlation` needs Python 3.10+ and this runs
+on 3.9).
+
+**Honest limitation:** the 2026/27 season hasn't started (GW1 kicks off 2026-08-21), so there is
+no finished gameweek to validate against yet — `GET /predictions/accuracy?event=1` correctly
+returns `finished: false` right now, and will keep doing so for any gameweek until its fixtures
+are actually marked finished. Verified two things separately instead of a real end-to-end run:
+the math (`compute_accuracy`/`_pearson_correlation`) against hand-calculated values, and the
+full comparison pipeline (fixture-finished detection → snapshot lookup → live-results parsing →
+join → sorting) against a fully isolated in-memory DB with a mocked live-results response — real
+per-gameweek validation has to wait for GW1 to actually finish.
+
+`/accuracy` frontend page: snapshot predictions for a gameweek, then check accuracy once it's
+finished (shows the "not finished yet" message honestly rather than pretending there's data).
+
 ## Fixture difficulty model
 
 `backend/app/fixture_difficulty.py` implements MODEL_SPEC section 2 instead of FPL's static 1-5
@@ -160,3 +183,11 @@ team, so difficulty differs only by home/away until real results come in — exp
 - [x] Optimizer v2 (transfer suggestions from an existing squad, budget/hit-aware)
 - [x] Saved squads (single-user persistence so transfer suggestions work across sessions)
 - [x] Optimizer v3 — multi-gameweek horizon, per-week captain (chip usage not implemented)
+- [x] Historical model accuracy tracking (snapshot + compare once a gameweek finishes — none has yet)
+
+## What's left
+
+- Chip usage in the horizon optimizer (wildcard, bench boost, triple captain, free hit) — flagged
+  above as a separate, larger piece of work.
+- Real end-to-end accuracy validation — waits for GW1 to actually finish (2026-08-21 kickoff).
+- Auth was intentionally skipped (brief marks it optional); saved squads are single-user.
