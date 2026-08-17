@@ -1,3 +1,5 @@
+from typing import Literal, Optional
+
 from fastapi import Depends, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
@@ -129,12 +131,27 @@ def _attach_team_names(result: dict, teams: dict[int, Team]) -> dict:
 
 
 @app.get("/optimize")
-def optimize(db: Session = Depends(get_db)):
+def optimize(
+    db: Session = Depends(get_db),
+    triple_captain: bool = False,
+    bench_boost: bool = False,
+):
     """Best possible 15-man squad + starting XI + captain for the upcoming
     gameweek from scratch (MODEL_SPEC v1 scope — single gameweek, no existing
-    squad / transfer constraints)."""
+    squad / transfer constraints). triple_captain/bench_boost model those
+    chips for this gameweek — see optimizer.py module docstring. Wildcard and
+    free hit aren't meaningful "from scratch" (they reshape an existing
+    squad); use /optimize/transfers with chip=wildcard|free_hit instead."""
+    if triple_captain and bench_boost:
+        raise HTTPException(400, "Only one chip can be active in a gameweek")
+
     pool, teams = _build_optimizer_pool(db)
-    result = optimize_squad(pool)
+    result = optimize_squad(
+        pool,
+        captain_multiplier=3 if triple_captain else 2,
+        bench_boost=bench_boost,
+    )
+    result["chip"] = "triple_captain" if triple_captain else ("bench_boost" if bench_boost else None)
     return _attach_team_names(result, teams)
 
 
@@ -142,6 +159,7 @@ class TransferRequest(BaseModel):
     squad_ids: list[int]
     free_transfers: int = 1
     max_transfers: int = 2
+    chip: Optional[Literal["wildcard", "free_hit", "triple_captain", "bench_boost"]] = None
 
 
 @app.post("/optimize/transfers")
@@ -149,7 +167,14 @@ def optimize_transfers(req: TransferRequest, db: Session = Depends(get_db)):
     """Given an existing 15-man squad, suggest the highest-value transfers
     (MODEL_SPEC v2 scope): budget is capped at the existing squad's own value,
     transfer count is capped at max_transfers, and each transfer beyond
-    free_transfers costs a -4pt hit weighed against the xP gain."""
+    free_transfers costs a -4pt hit weighed against the xP gain.
+
+    chip applies a v3 chip for this gameweek: wildcard/free_hit remove the
+    transfer cap and hit entirely (mathematically identical to each other —
+    they differ only in whether the resulting squad persists afterward,
+    which is up to the caller to track, not this stateless computation);
+    triple_captain triples the captain instead of doubling; bench_boost
+    scores all 15 squad players instead of just the starting XI."""
     if len(req.squad_ids) != 15:
         raise HTTPException(400, f"squad_ids must have exactly 15 players, got {len(req.squad_ids)}")
 
@@ -159,12 +184,24 @@ def optimize_transfers(req: TransferRequest, db: Session = Depends(get_db)):
     if unknown:
         raise HTTPException(400, f"Unknown player id(s): {sorted(unknown)}")
 
+    free_transfers, max_transfers = req.free_transfers, req.max_transfers
+    captain_multiplier, bench_boost = 2, False
+    if req.chip in ("wildcard", "free_hit"):
+        free_transfers = max_transfers = 15  # a 15-man squad can't have more transfers — "unlimited"
+    elif req.chip == "triple_captain":
+        captain_multiplier = 3
+    elif req.chip == "bench_boost":
+        bench_boost = True
+
     result = optimize_squad(
         pool,
         existing_squad_ids=set(req.squad_ids),
-        free_transfers=req.free_transfers,
-        max_transfers=req.max_transfers,
+        free_transfers=free_transfers,
+        max_transfers=max_transfers,
+        captain_multiplier=captain_multiplier,
+        bench_boost=bench_boost,
     )
+    result["chip"] = req.chip
     return _attach_team_names(result, teams)
 
 

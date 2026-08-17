@@ -9,6 +9,7 @@ import {
   fetchSavedSquads,
   fetchTransferSuggestions,
   saveSquad,
+  type Chip,
   type OptimizeResult,
   type SavedSquadSummary,
   type SquadPlayer,
@@ -16,6 +17,22 @@ import {
 } from "@/lib/api";
 
 const POSITION_ORDER = ["GKP", "DEF", "MID", "FWD"] as const;
+
+const CHIP_LABELS: Record<Chip, string> = {
+  wildcard: "Wildcard",
+  free_hit: "Free Hit",
+  triple_captain: "Triple Captain",
+  bench_boost: "Bench Boost",
+};
+
+function ChipBadge({ chip }: { chip: Chip | null | undefined }) {
+  if (!chip) return null;
+  return (
+    <span className="rounded-full bg-purple-100 px-2 py-0.5 text-xs font-semibold text-purple-700">
+      {CHIP_LABELS[chip]} active
+    </span>
+  );
+}
 
 function PlayerCard({ player, isCaptain }: { player: SquadPlayer; isCaptain: boolean }) {
   return (
@@ -41,11 +58,13 @@ export default function OptimizePage() {
   const [result, setResult] = useState<OptimizeResult | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [buildChip, setBuildChip] = useState<"" | "triple_captain" | "bench_boost">("");
 
   const [activeSquad, setActiveSquad] = useState<ActiveSquad | null>(null);
 
   const [freeTransfers, setFreeTransfers] = useState(1);
   const [maxTransfers, setMaxTransfers] = useState(2);
+  const [transferChip, setTransferChip] = useState<"" | Chip>("");
   const [transferResult, setTransferResult] = useState<TransferResult | null>(null);
   const [transferLoading, setTransferLoading] = useState(false);
   const [transferError, setTransferError] = useState<string | null>(null);
@@ -86,7 +105,7 @@ export default function OptimizePage() {
     setError(null);
     setTransferResult(null);
     try {
-      const r = await fetchOptimalSquad();
+      const r = await fetchOptimalSquad(buildChip || undefined);
       setResult(r);
       setActiveSquad({ ids: r.squad.map((p) => p.id), label: "Just-built optimal squad" });
     } catch (e) {
@@ -129,7 +148,12 @@ export default function OptimizePage() {
     setTransferError(null);
     try {
       setTransferResult(
-        await fetchTransferSuggestions(activeSquad.ids, freeTransfers, maxTransfers)
+        await fetchTransferSuggestions(
+          activeSquad.ids,
+          freeTransfers,
+          maxTransfers,
+          transferChip || undefined
+        )
       );
     } catch (e) {
       setTransferError(String(e));
@@ -158,13 +182,27 @@ export default function OptimizePage() {
           built from scratch via linear programming).
         </p>
 
-        <button
-          onClick={run}
-          disabled={loading}
-          className="mb-6 rounded bg-gray-900 px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
-        >
-          {loading ? "Solving…" : "Build optimal squad"}
-        </button>
+        <div className="mb-6 flex items-center gap-3">
+          <button
+            onClick={run}
+            disabled={loading}
+            className="rounded bg-gray-900 px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
+          >
+            {loading ? "Solving…" : "Build optimal squad"}
+          </button>
+          <label className="flex items-center gap-2 text-sm text-gray-600">
+            Chip
+            <select
+              value={buildChip}
+              onChange={(e) => setBuildChip(e.target.value as typeof buildChip)}
+              className="rounded border border-gray-300 px-2 py-1.5"
+            >
+              <option value="">None</option>
+              <option value="triple_captain">Triple Captain</option>
+              <option value="bench_boost">Bench Boost</option>
+            </select>
+          </label>
+        </div>
 
         {error && (
           <div className="mb-6 rounded border border-red-300 bg-red-50 p-3 text-sm text-red-700">
@@ -185,6 +223,7 @@ export default function OptimizePage() {
                   {result.total_xp.toFixed(2)}
                 </span>
               </div>
+              <ChipBadge chip={result.chip} />
               <div className="flex items-center gap-2">
                 <input
                   type="text"
@@ -285,7 +324,7 @@ export default function OptimizePage() {
               nothing, extra ones cost -4pts, weighed against the xP gained.
             </p>
 
-            <div className="mb-3 flex items-center gap-4 text-sm">
+            <div className="mb-3 flex flex-wrap items-center gap-4 text-sm">
               <label className="flex items-center gap-2">
                 Free transfers
                 <input
@@ -293,8 +332,9 @@ export default function OptimizePage() {
                   min={0}
                   max={5}
                   value={freeTransfers}
+                  disabled={transferChip === "wildcard" || transferChip === "free_hit"}
                   onChange={(e) => setFreeTransfers(Number(e.target.value))}
-                  className="w-16 rounded border border-gray-300 px-2 py-1"
+                  className="w-16 rounded border border-gray-300 px-2 py-1 disabled:bg-gray-100"
                 />
               </label>
               <label className="flex items-center gap-2">
@@ -304,9 +344,24 @@ export default function OptimizePage() {
                   min={1}
                   max={5}
                   value={maxTransfers}
+                  disabled={transferChip === "wildcard" || transferChip === "free_hit"}
                   onChange={(e) => setMaxTransfers(Number(e.target.value))}
-                  className="w-16 rounded border border-gray-300 px-2 py-1"
+                  className="w-16 rounded border border-gray-300 px-2 py-1 disabled:bg-gray-100"
                 />
+              </label>
+              <label className="flex items-center gap-2">
+                Chip
+                <select
+                  value={transferChip}
+                  onChange={(e) => setTransferChip(e.target.value as typeof transferChip)}
+                  className="rounded border border-gray-300 px-2 py-1.5"
+                >
+                  <option value="">None</option>
+                  <option value="wildcard">Wildcard (rebuild, persists)</option>
+                  <option value="free_hit">Free Hit (rebuild, reverts next GW)</option>
+                  <option value="triple_captain">Triple Captain</option>
+                  <option value="bench_boost">Bench Boost</option>
+                </select>
               </label>
               <button
                 onClick={suggestTransfers}
@@ -325,7 +380,7 @@ export default function OptimizePage() {
 
             {transferResult && (
               <div className="text-sm">
-                <div className="mb-3 flex gap-6">
+                <div className="mb-3 flex flex-wrap items-center gap-6">
                   <div>
                     <span className="text-gray-500">Transfers: </span>
                     <span className="font-semibold">{transferResult.n_transfers}</span>
@@ -342,7 +397,15 @@ export default function OptimizePage() {
                       {transferResult.net_xp.toFixed(2)}
                     </span>
                   </div>
+                  <ChipBadge chip={transferResult.chip} />
                 </div>
+                {(transferResult.chip === "wildcard" || transferResult.chip === "free_hit") && (
+                  <p className="mb-3 text-xs text-gray-500">
+                    {transferResult.chip === "wildcard"
+                      ? "This squad persists — save it below to keep using it in future gameweeks."
+                      : "This squad is only for this gameweek — your previous squad is still your real one after this. Don't save over it unless you mean to."}
+                  </p>
+                )}
 
                 {transferResult.transfers.length === 0 ? (
                   <p className="text-gray-500">

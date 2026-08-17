@@ -6,7 +6,7 @@ See [PROJECT_BRIEF.md](./PROJECT_BRIEF.md) and [MODEL_SPEC.md](./MODEL_SPEC.md) 
 ## Stack
 
 - Backend: FastAPI + SQLAlchemy + Alembic (Python)
-- Frontend: Next.js (React) — not yet built
+- Frontend: Next.js (React)
 - Database: Postgres in production (Render), SQLite for local dev (no setup required)
 
 ## Backend setup
@@ -28,8 +28,8 @@ Endpoints:
 - `POST /refresh` — re-pull FPL data and upsert (idempotent — safe to call repeatedly)
 - `GET /teams` — team list
 - `GET /players?next_n=5` — player list with price/form/ownership and next N fixtures, each annotated with our own Elo-based difficulty (1-5) and clean-sheet probability
-- `GET /optimize` — best possible 15-man squad, starting XI, and captain for the upcoming gameweek (PuLP linear program, from scratch, v1 scope)
-- `POST /optimize/transfers` — given an existing squad (`{squad_ids: [...], free_transfers, max_transfers}`), suggest the highest-value transfers (v2 scope)
+- `GET /optimize?triple_captain=&bench_boost=` — best possible 15-man squad, starting XI, and captain for the upcoming gameweek (PuLP linear program, from scratch, v1 scope); optionally with triple captain or bench boost active
+- `POST /optimize/transfers` — given an existing squad (`{squad_ids, free_transfers, max_transfers, chip}`), suggest the highest-value transfers (v2 scope); `chip` is one of `wildcard`/`free_hit`/`triple_captain`/`bench_boost`/null
 - `POST /squads`, `GET /squads`, `GET /squads/{id}`, `DELETE /squads/{id}` — save/list/load/delete a 15-man squad (single-user, no auth)
 - `GET /optimize/horizon?weeks=5` — one static squad/XI held across the next `weeks` gameweeks, captain re-optimized per gameweek (v3, partial — see below)
 - `POST /predictions/snapshot?event=N` — record current xP predictions for gameweek N (idempotent, call again before the deadline to refresh)
@@ -131,11 +131,41 @@ player by luck) with a synthetic test: two equal-cost "star" players, one strong
 weak in week 2, the other the reverse — the solver correctly captained each one in their strong
 week.
 
-**Chip usage is not implemented.** Each chip changes the scoring/squad rules for a single
-gameweek in a materially different way (free hit temporarily swaps the whole squad then reverts;
-wildcard removes the transfer-hit constraint for one week; bench boost counts the bench;
-triple captain triples instead of doubles) — genuinely separate logic per chip, not a small
-extension of the horizon optimizer above. Left for a future pass.
+**Chip usage for a single, caller-chosen gameweek is implemented** — see "Chip logic" below.
+**Auto-placing a chip across a multi-gameweek horizon** ("which future gameweek should I use my
+wildcard in") is a separate, combinatorial squad-selection problem and is not implemented; left
+for a future pass.
+
+## Chip logic (wildcard, free hit, triple captain, bench boost)
+
+All four chips reduce to changes on the existing single-gameweek `optimize_squad`, rather than
+needing a rearchitected horizon optimizer:
+
+- **Triple captain**: `captain_multiplier=3` instead of the default 2 — the captain's xP is
+  counted `(multiplier - 1)` extra times on top of their normal XI contribution. Verified exactly:
+  a triple-captain build came back 5.76 higher than the equivalent normal build, exactly matching
+  the captain's own xP (one extra full copy, as the math requires).
+- **Bench boost**: `bench_boost=True` scores all 15 squad players instead of just the starting
+  XI. Verified exactly: `sum(all 15 players' xp) + captain's xp = total_xp` to the cent. Also
+  behaves intelligently, not just numerically — with bench boost active the solver picks
+  genuinely strong bench players (e.g. a £8.0m/4.5xP forward) instead of the usual cheap fillers,
+  since the bench actually scores that week.
+- **Wildcard** and **free hit**: mathematically identical to each other, and to the existing v2
+  transfer flow — both mean "unlimited free transfers for one gameweek, budget still capped at
+  the existing squad's value." Implemented as `optimize_squad(..., existing_squad_ids=..., 
+  free_transfers=15, max_transfers=15)` (15 is "unlimited" — a 15-man squad can't have more
+  transfers than that), which naturally drives `hit_points` to 0 regardless of how many players
+  change, no special-casing needed. The only real difference between the two chips is what
+  happens afterward — a wildcard squad persists into future gameweeks, a free hit squad reverts —
+  which is bookkeeping for the caller (which squad you save and keep using), not something this
+  stateless optimization call needs to model differently. `POST /optimize/transfers` accepts
+  `chip: "wildcard" | "free_hit" | "triple_captain" | "bench_boost" | null`.
+
+Verified end-to-end through the actual browser UI (not just the API): built a squad with triple
+captain and with bench boost active (numbers matched the API tests exactly), then ran wildcard
+against an already-optimal squad and confirmed it correctly found 0 beneficial transfers with 0
+hit, with the UI showing chip-appropriate guidance ("this squad persists" for wildcard vs. "this
+squad reverts after this gameweek" for free hit).
 
 ## Historical model accuracy tracking
 
@@ -182,12 +212,14 @@ team, so difficulty differs only by home/away until real results come in — exp
 - [x] Optimizer v1 (PuLP: optimal 15-man squad + XI + captain, single gameweek)
 - [x] Optimizer v2 (transfer suggestions from an existing squad, budget/hit-aware)
 - [x] Saved squads (single-user persistence so transfer suggestions work across sessions)
-- [x] Optimizer v3 — multi-gameweek horizon, per-week captain (chip usage not implemented)
+- [x] Optimizer v3 — multi-gameweek horizon, per-week captain
 - [x] Historical model accuracy tracking (snapshot + compare once a gameweek finishes — none has yet)
+- [x] Chip logic — triple captain, bench boost, wildcard, free hit (single-gameweek, not
+      auto-placed across a horizon)
 
 ## What's left
 
-- Chip usage in the horizon optimizer (wildcard, bench boost, triple captain, free hit) — flagged
-  above as a separate, larger piece of work.
+- Auto-placing a chip across a multi-gameweek horizon ("which future gameweek should I use my
+  wildcard in") — a separate, combinatorial squad-selection problem.
 - Real end-to-end accuracy validation — waits for GW1 to actually finish (2026-08-21 kickoff).
 - Auth was intentionally skipped (brief marks it optional); saved squads are single-user.

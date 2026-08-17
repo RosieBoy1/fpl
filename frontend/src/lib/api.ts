@@ -40,6 +40,8 @@ export type SquadPlayer = {
   xp: number;
 };
 
+export type Chip = "wildcard" | "free_hit" | "triple_captain" | "bench_boost";
+
 export type OptimizeResult = {
   squad: SquadPlayer[];
   starting_xi: SquadPlayer[];
@@ -47,6 +49,7 @@ export type OptimizeResult = {
   captain: SquadPlayer;
   total_cost_m: number;
   total_xp: number;
+  chip: Chip | null;
 };
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
@@ -59,8 +62,14 @@ export async function fetchPlayers(): Promise<PlayerRow[]> {
   return res.json();
 }
 
-export async function fetchOptimalSquad(): Promise<OptimizeResult> {
-  const res = await fetch(`${API_URL}/optimize`, { cache: "no-store" });
+export async function fetchOptimalSquad(
+  chip?: Extract<Chip, "triple_captain" | "bench_boost">
+): Promise<OptimizeResult> {
+  const params = new URLSearchParams();
+  if (chip === "triple_captain") params.set("triple_captain", "true");
+  if (chip === "bench_boost") params.set("bench_boost", "true");
+  const qs = params.toString();
+  const res = await fetch(`${API_URL}/optimize${qs ? `?${qs}` : ""}`, { cache: "no-store" });
   if (!res.ok) {
     throw new Error(`Failed to optimize squad: ${res.status}`);
   }
@@ -80,7 +89,8 @@ export type TransferResult = OptimizeResult & {
 export async function fetchTransferSuggestions(
   squadIds: number[],
   freeTransfers: number,
-  maxTransfers: number
+  maxTransfers: number,
+  chip?: Chip
 ): Promise<TransferResult> {
   const res = await fetch(`${API_URL}/optimize/transfers`, {
     method: "POST",
@@ -89,6 +99,7 @@ export async function fetchTransferSuggestions(
       squad_ids: squadIds,
       free_transfers: freeTransfers,
       max_transfers: maxTransfers,
+      chip: chip ?? null,
     }),
     cache: "no-store",
   });

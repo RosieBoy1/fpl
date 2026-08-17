@@ -11,12 +11,28 @@ v3 scope (partial — see optimize_squad_horizon): one static squad/XI held
 across a multi-gameweek horizon, with the captain re-optimized independently
 per gameweek (squad doesn't change week to week, the armband does — that's
 how real managers play). This naturally accounts for fixture swings since
-it uses each player's actual per-gameweek xP across the horizon. Chip usage
-(wildcard, bench boost, triple captain, free hit) is NOT implemented — each
-chip changes the rules for one gameweek in a materially different way
-(e.g. free hit temporarily swaps the whole squad, then reverts) and is a
-separate, substantial piece of work MODEL_SPEC itself flags as harder than
-the rest of v3; left for a future pass rather than a shallow approximation.
+it uses each player's actual per-gameweek xP across the horizon. Chip
+auto-placement across a horizon (i.e. "which future gameweek should I use
+each chip in") is NOT implemented — that's a combinatorial squad-selection
+problem in its own right and stays a future pass.
+
+Chip usage for a single, caller-chosen gameweek IS implemented, via
+optimize_squad's captain_multiplier/bench_boost params and the existing
+existing_squad_ids transfer mechanism:
+  - Triple captain: captain_multiplier=3 instead of the default 2.
+  - Bench boost: bench_boost=True — all 15 squad players' xP counts, not
+    just the starting XI's.
+  - Wildcard / Free Hit: mathematically identical to each other and to the
+    existing v2 transfer flow — both mean "unlimited free transfers for one
+    gameweek, budget still capped at the existing squad's value" — so both
+    just call optimize_squad with existing_squad_ids and a transfer
+    allowance high enough that the -4pt hit never applies (free_transfers=15
+    is "no cap" since a 15-man squad can't have more transfers than that).
+    The only real difference between them is what happens afterward: a
+    wildcard squad persists into future gameweeks, a free hit squad reverts
+    to the pre-chip squad after this one gameweek — that's bookkeeping for
+    the caller (which squad you save/keep using), not something this single
+    stateless optimization call needs to model differently.
 """
 from __future__ import annotations
 
@@ -80,12 +96,20 @@ def optimize_squad(
     existing_squad_ids: set[int] | None = None,
     free_transfers: int = 1,
     max_transfers: int = 2,
+    captain_multiplier: int = 2,
+    bench_boost: bool = False,
 ) -> dict:
     """Build the best squad/XI/captain. With existing_squad_ids, instead optimizes
     around that squad: budget is capped at the existing squad's value (not the full
     £100m — you're reinvesting sold players' cost, not starting fresh), the number
     of players swapped is capped at max_transfers, and each transfer beyond
-    free_transfers costs a -4pt hit that the solver weighs against the xP gain."""
+    free_transfers costs a -4pt hit that the solver weighs against the xP gain.
+
+    captain_multiplier=3 models triple captain (default 2 is the normal double).
+    bench_boost=True scores all 15 squad players instead of just the starting XI.
+    Wildcard/free hit aren't separate params — see module docstring — call this
+    with existing_squad_ids and free_transfers/max_transfers set high enough that
+    the hit never applies (15 covers it, a squad can't have more transfers)."""
     prob = pulp.LpProblem("fpl_squad", pulp.LpMaximize)
 
     squad = {p.id: pulp.LpVariable(f"squad_{p.id}", cat="Binary") for p in players}
@@ -94,10 +118,13 @@ def optimize_squad(
 
     by_id = {p.id: p for p in players}
 
-    # Objective: starting XI's xP, plus the captain's xP counted again (doubled total).
-    objective = pulp.lpSum(by_id[i].xp * start[i] for i in start) + pulp.lpSum(
-        by_id[i].xp * captain[i] for i in captain
-    )
+    # Objective: XI's xP (or all 15 under bench boost), plus the captain's xP
+    # counted (captain_multiplier - 1) extra times — e.g. x1 extra = doubled
+    # total for the normal case, x2 extra = tripled for triple captain.
+    scoring_group = squad if bench_boost else start
+    objective = pulp.lpSum(by_id[i].xp * scoring_group[i] for i in scoring_group) + (
+        captain_multiplier - 1
+    ) * pulp.lpSum(by_id[i].xp * captain[i] for i in captain)
 
     # Squad composition
     prob += pulp.lpSum(squad.values()) == 15
