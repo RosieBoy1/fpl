@@ -1,4 +1,4 @@
-"""Squad optimizer v1/v2, per MODEL_SPEC.md section 3.
+"""Squad optimizer v1/v2/v3, per MODEL_SPEC.md section 3.
 
 v1 scope: single-gameweek squad selection from scratch — build the best possible
 15-man squad, starting XI, and captain for the upcoming gameweek.
@@ -7,7 +7,16 @@ v2 scope: given an existing squad, suggest the highest-value 1-2 transfers,
 allowing a -4pt "hit" per transfer beyond the free ones rather than a hard cap
 (the solver decides whether a hit-taking transfer is still worth it).
 
-Multi-gameweek horizon (v3) is out of scope here.
+v3 scope (partial — see optimize_squad_horizon): one static squad/XI held
+across a multi-gameweek horizon, with the captain re-optimized independently
+per gameweek (squad doesn't change week to week, the armband does — that's
+how real managers play). This naturally accounts for fixture swings since
+it uses each player's actual per-gameweek xP across the horizon. Chip usage
+(wildcard, bench boost, triple captain, free hit) is NOT implemented — each
+chip changes the rules for one gameweek in a materially different way
+(e.g. free hit temporarily swaps the whole squad, then reverts) and is a
+separate, substantial piece of work MODEL_SPEC itself flags as harder than
+the rest of v3; left for a future pass rather than a shallow approximation.
 """
 from __future__ import annotations
 
@@ -31,6 +40,26 @@ class OptimizerInput:
         self.position = position
         self.cost_m = cost_m
         self.xp = xp
+
+
+class HorizonPlayerInput:
+    __slots__ = ("id", "web_name", "team_id", "position", "cost_m", "xp_by_event")
+
+    def __init__(
+        self,
+        id: int,
+        web_name: str,
+        team_id: int,
+        position: str,
+        cost_m: float,
+        xp_by_event: dict[int, float],
+    ):
+        self.id = id
+        self.web_name = web_name
+        self.team_id = team_id
+        self.position = position
+        self.cost_m = cost_m
+        self.xp_by_event = xp_by_event
 
 
 def _pick_solver():
@@ -192,3 +221,99 @@ def _pair_transfers(
         for out_id, in_id in zip(out_ids, in_by_pos.get(pos, [])):
             pairs.append({"out": summarize(out_id), "in": summarize(in_id)})
     return pairs
+
+
+def optimize_squad_horizon(players: list[HorizonPlayerInput], events: list[int]) -> dict:
+    """v3 (partial): one static squad/XI held across `events` (gameweek numbers),
+    captain re-optimized independently per gameweek. Budget/composition/team
+    constraints are identical to the from-scratch v1 case; existing-squad
+    transfer constraints (v2) aren't combined with this — out of scope here."""
+    prob = pulp.LpProblem("fpl_squad_horizon", pulp.LpMaximize)
+
+    squad = {p.id: pulp.LpVariable(f"squad_{p.id}", cat="Binary") for p in players}
+    start = {p.id: pulp.LpVariable(f"start_{p.id}", cat="Binary") for p in players}
+    captain = {
+        (p.id, e): pulp.LpVariable(f"cap_{p.id}_{e}", cat="Binary") for p in players for e in events
+    }
+
+    by_id = {p.id: p for p in players}
+
+    objective = pulp.lpSum(
+        by_id[i].xp_by_event.get(e, 0.0) * start[i] for i in start for e in events
+    ) + pulp.lpSum(
+        by_id[i].xp_by_event.get(e, 0.0) * captain[(i, e)] for i in start for e in events
+    )
+
+    # Squad composition (same as v1 — full £100m budget, from scratch)
+    prob += pulp.lpSum(squad.values()) == 15
+    for pos, n in SQUAD_SIZE.items():
+        prob += pulp.lpSum(squad[p.id] for p in players if p.position == pos) == n
+    prob += pulp.lpSum(by_id[i].cost_m * squad[i] for i in squad) <= BUDGET_M
+
+    team_ids = {p.team_id for p in players}
+    for t in team_ids:
+        prob += pulp.lpSum(squad[p.id] for p in players if p.team_id == t) <= MAX_PER_TEAM
+
+    prob += pulp.lpSum(start.values()) == 11
+    for i in squad:
+        prob += start[i] <= squad[i]
+
+    for pos in FORMATION_MIN:
+        ids_at_pos = [p.id for p in players if p.position == pos]
+        prob += pulp.lpSum(start[i] for i in ids_at_pos) >= FORMATION_MIN[pos]
+        prob += pulp.lpSum(start[i] for i in ids_at_pos) <= FORMATION_MAX[pos]
+
+    # One captain per gameweek, drawn from the (fixed) starting XI
+    for e in events:
+        prob += pulp.lpSum(captain[(i, e)] for i in start) == 1
+        for i in start:
+            prob += captain[(i, e)] <= start[i]
+
+    prob += objective
+
+    status = prob.solve(_pick_solver())
+    if pulp.LpStatus[status] != "Optimal":
+        raise RuntimeError(f"Optimizer did not find an optimal solution: {pulp.LpStatus[status]}")
+
+    squad_ids = [i for i in squad if squad[i].value() > 0.5]
+    starting_ids = [i for i in start if start[i].value() > 0.5]
+    bench_ids = [i for i in squad_ids if i not in starting_ids]
+    total_cost = sum(by_id[i].cost_m for i in squad_ids)
+
+    def summarize(i):
+        p = by_id[i]
+        return {
+            "id": p.id,
+            "web_name": p.web_name,
+            "team_id": p.team_id,
+            "position": p.position,
+            "cost_m": p.cost_m,
+            "xp_total": round(sum(p.xp_by_event.get(e, 0.0) for e in events), 2),
+        }
+
+    weekly_captains = []
+    total_horizon_xp = 0.0
+    for e in events:
+        cap_id = next(i for i in starting_ids if captain[(i, e)].value() > 0.5)
+        week_total = sum(by_id[i].xp_by_event.get(e, 0.0) for i in starting_ids) + by_id[
+            cap_id
+        ].xp_by_event.get(e, 0.0)
+        total_horizon_xp += week_total
+        weekly_captains.append(
+            {
+                "event": e,
+                "captain_id": cap_id,
+                "captain_name": by_id[cap_id].web_name,
+                "xp_that_week": round(week_total, 2),
+            }
+        )
+
+    return {
+        "events": events,
+        "squad": [summarize(i) for i in squad_ids],
+        "starting_xi": [summarize(i) for i in starting_ids],
+        "bench": [summarize(i) for i in bench_ids],
+        "total_cost_m": round(total_cost, 1),
+        "weekly_captains": weekly_captains,
+        "total_horizon_xp": round(total_horizon_xp, 2),
+    }

@@ -31,6 +31,7 @@ Endpoints:
 - `GET /optimize` — best possible 15-man squad, starting XI, and captain for the upcoming gameweek (PuLP linear program, from scratch, v1 scope)
 - `POST /optimize/transfers` — given an existing squad (`{squad_ids: [...], free_transfers, max_transfers}`), suggest the highest-value transfers (v2 scope)
 - `POST /squads`, `GET /squads`, `GET /squads/{id}`, `DELETE /squads/{id}` — save/list/load/delete a 15-man squad (single-user, no auth)
+- `GET /optimize/horizon?weeks=5` — one static squad/XI held across the next `weeks` gameweeks, captain re-optimized per gameweek (v3, partial — see below)
 
 ## Frontend setup
 
@@ -112,6 +113,28 @@ exist. The `/optimize` page's "Suggest transfers" section operates on an "active
 either the just-built optimal squad or a loaded saved squad — save one, then later load it back
 and ask for transfer suggestions against it.
 
+## Optimizer v3 (multi-gameweek horizon — partial)
+
+MODEL_SPEC flags v3 as "meaningfully harder" than v1/v2 for two separate reasons: a
+multi-gameweek horizon, and chip usage (wildcard, bench boost, triple captain, free hit).
+`GET /optimize/horizon?weeks=N` implements the horizon half: one static squad/XI held across
+the next N gameweeks (still £100.0m budget, from scratch — not combined with v2's existing-squad
+transfer constraints), with the captain re-optimized independently *per gameweek* via a separate
+binary variable per (player, gameweek) pair — matches how managers actually play: the squad
+doesn't change week to week, but the armband does. This is how "fixture swings" get accounted
+for: each player's real per-gameweek xP (already computed by the fixture-difficulty + xP model)
+feeds the objective, so a team with a rough patch mid-horizon is naturally worth less over that
+window. Verified the per-week captain re-optimization actually works (not just picking the same
+player by luck) with a synthetic test: two equal-cost "star" players, one strong in week 1 and
+weak in week 2, the other the reverse — the solver correctly captained each one in their strong
+week.
+
+**Chip usage is not implemented.** Each chip changes the scoring/squad rules for a single
+gameweek in a materially different way (free hit temporarily swaps the whole squad then reverts;
+wildcard removes the transfer-hit constraint for one week; bench boost counts the bench;
+triple captain triples instead of doubles) — genuinely separate logic per chip, not a small
+extension of the horizon optimizer above. Left for a future pass.
+
 ## Fixture difficulty model
 
 `backend/app/fixture_difficulty.py` implements MODEL_SPEC section 2 instead of FPL's static 1-5
@@ -136,3 +159,4 @@ team, so difficulty differs only by home/away until real results come in — exp
 - [x] Optimizer v1 (PuLP: optimal 15-man squad + XI + captain, single gameweek)
 - [x] Optimizer v2 (transfer suggestions from an existing squad, budget/hit-aware)
 - [x] Saved squads (single-user persistence so transfer suggestions work across sessions)
+- [x] Optimizer v3 — multi-gameweek horizon, per-week captain (chip usage not implemented)

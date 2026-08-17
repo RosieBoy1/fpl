@@ -147,3 +147,40 @@ export async function deleteSavedSquad(id: number): Promise<void> {
   const res = await fetch(`${API_URL}/squads/${id}`, { method: "DELETE" });
   if (!res.ok) throw new Error(`Failed to delete squad ${id}: ${res.status}`);
 }
+
+export type HorizonSquadPlayer = {
+  id: number;
+  web_name: string;
+  team_id: number;
+  team_short_name: string;
+  position: "GKP" | "DEF" | "MID" | "FWD";
+  cost_m: number;
+  xp_total: number;
+};
+
+export type WeeklyCaptain = {
+  event: number;
+  captain_id: number;
+  captain_name: string;
+  team_short_name: string;
+  xp_that_week: number;
+};
+
+export type HorizonResult = {
+  events: number[];
+  squad: HorizonSquadPlayer[];
+  starting_xi: HorizonSquadPlayer[];
+  bench: HorizonSquadPlayer[];
+  total_cost_m: number;
+  weekly_captains: WeeklyCaptain[];
+  total_horizon_xp: number;
+};
+
+export async function fetchHorizonSquad(weeks: number): Promise<HorizonResult> {
+  const res = await fetch(`${API_URL}/optimize/horizon?weeks=${weeks}`, { cache: "no-store" });
+  if (!res.ok) {
+    const body = await res.text();
+    throw new Error(`Failed to build horizon squad: ${res.status} ${body}`);
+  }
+  return res.json();
+}

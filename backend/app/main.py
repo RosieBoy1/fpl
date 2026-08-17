@@ -8,7 +8,7 @@ from app.db import get_db
 from app.fixture_difficulty import compute_team_ratings, fixtures_by_team_map
 from app.ingest import refresh_all
 from app.models import Fixture, Player, SavedSquad, Team
-from app.optimizer import OptimizerInput, optimize_squad
+from app.optimizer import HorizonPlayerInput, OptimizerInput, optimize_squad, optimize_squad_horizon
 from app.xp_model import expected_points_for_fixture, expected_points_over_horizon
 
 app = FastAPI(title="FPL Companion API")
@@ -165,6 +165,54 @@ def optimize_transfers(req: TransferRequest, db: Session = Depends(get_db)):
         max_transfers=req.max_transfers,
     )
     return _attach_team_names(result, teams)
+
+
+@app.get("/optimize/horizon")
+def optimize_horizon(db: Session = Depends(get_db), weeks: int = 5):
+    """v3 (partial): one static squad/XI held across the next `weeks`
+    gameweeks, captain re-optimized per gameweek. No chip logic — see
+    optimizer.py module docstring."""
+    if not 1 <= weeks <= 10:
+        raise HTTPException(400, "weeks must be between 1 and 10")
+
+    players = db.query(Player).all()
+    teams = {t.id: t for t in db.query(Team).all()}
+    ratings = compute_team_ratings(db)
+    fixtures_by_team = fixtures_by_team_map(db, ratings, {p.team_id for p in players}, n=weeks)
+
+    pool = []
+    all_events: set[int] = set()
+    for p in players:
+        xp_by_event = {}
+        for f in fixtures_by_team[p.team_id]:
+            if f["event"] is None:
+                continue
+            xp_by_event[f["event"]] = expected_points_for_fixture(p, f)
+            all_events.add(f["event"])
+        pool.append(
+            HorizonPlayerInput(
+                id=p.id,
+                web_name=p.web_name,
+                team_id=p.team_id,
+                position=p.position,
+                cost_m=p.now_cost / 10,
+                xp_by_event=xp_by_event,
+            )
+        )
+
+    events = sorted(all_events)
+    if not events:
+        raise HTTPException(400, "No upcoming fixtures found for the requested horizon")
+
+    result = optimize_squad_horizon(pool, events)
+    for group in ("squad", "starting_xi", "bench"):
+        for row in result[group]:
+            row["team_short_name"] = teams[row["team_id"]].short_name
+    for wc in result["weekly_captains"]:
+        wc["team_short_name"] = teams[
+            next(p.team_id for p in pool if p.id == wc["captain_id"])
+        ].short_name
+    return result
 
 
 class SaveSquadRequest(BaseModel):

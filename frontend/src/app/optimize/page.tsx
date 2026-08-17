@@ -143,9 +143,14 @@ export default function OptimizePage() {
       <div className="mx-auto max-w-4xl">
         <div className="mb-1 flex items-center justify-between">
           <h1 className="text-2xl font-bold">Squad Optimizer</h1>
-          <Link href="/" className="text-sm text-blue-600 hover:underline">
-            &larr; Dashboard
-          </Link>
+          <div className="flex gap-4">
+            <Link href="/optimize/horizon" className="text-sm text-blue-600 hover:underline">
+              Multi-gameweek horizon &rarr;
+            </Link>
+            <Link href="/" className="text-sm text-blue-600 hover:underline">
+              &larr; Dashboard
+            </Link>
+          </div>
         </div>
         <p className="mb-6 text-sm text-gray-500">
           Best possible 15-man squad, starting XI, and captain for the upcoming gameweek —
