@@ -19,13 +19,36 @@ pip install -r requirements.txt
 cp .env.example .env   # defaults to local SQLite, edit DATABASE_URL for Postgres
 alembic upgrade head
 python -m app.ingest   # pulls FPL bootstrap-static + fixtures, upserts into DB
-uvicorn app.main:app --reload
+uvicorn app.main:app --reload --port 8000
 ```
 
 Endpoints:
 - `GET /health` — liveness check
 - `GET /status` — row counts (teams/players/fixtures) currently in the DB
 - `POST /refresh` — re-pull FPL data and upsert (idempotent — safe to call repeatedly)
+- `GET /teams` — team list
+- `GET /players?next_n=5` — player list with price/form/ownership and next N fixtures, each annotated with our own Elo-based difficulty (1-5) and clean-sheet probability
+
+## Frontend setup
+
+```bash
+cd frontend
+npm install
+cp .env.local.example .env.local   # if present; otherwise NEXT_PUBLIC_API_URL defaults to http://localhost:8000
+npm run dev
+```
+
+Dashboard at `http://localhost:3000`: player table with search, position filter, sort, and
+next-5-fixture chips color-coded by difficulty.
+
+## Fixture difficulty model
+
+`backend/app/fixture_difficulty.py` implements MODEL_SPEC section 2 instead of FPL's static 1-5
+FDR: rolling Elo-style attack/defense ratings per team (start 1500, K=20), expected goals via
+rating ratios + home advantage, clean-sheet probability via Poisson. Ratings are recomputed from
+all finished fixtures each request rather than persisted — cheap at this data volume and avoids
+incremental-update bugs. Pre-season (no finished fixtures yet) ratings are flat at 1500 for every
+team, so difficulty differs only by home/away until real results come in — expected behavior.
 
 ## Data pipeline notes
 
@@ -37,6 +60,6 @@ Endpoints:
 ## Status
 
 - [x] Data pipeline (teams, players, fixtures from FPL API → Postgres/SQLite, verified idempotent)
-- [ ] Dashboard (player list + fixture difficulty)
+- [x] Dashboard (player list + Elo-based fixture difficulty color-coding)
 - [ ] xP model v1
 - [ ] Optimizer v1
