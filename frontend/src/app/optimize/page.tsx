@@ -176,6 +176,12 @@ export default function OptimizePage() {
           </div>
           <div className="flex shrink-0 gap-4">
             <Link
+              href="/optimize/import"
+              className="text-sm font-medium text-blue-700 transition-colors hover:text-amber-600"
+            >
+              Import my team &rarr;
+            </Link>
+            <Link
               href="/optimize/horizon"
               className="text-sm font-medium text-blue-700 transition-colors hover:text-amber-600"
             >

@@ -90,7 +90,8 @@ export async function fetchTransferSuggestions(
   squadIds: number[],
   freeTransfers: number,
   maxTransfers: number,
-  chip?: Chip
+  chip?: Chip,
+  budgetM?: number
 ): Promise<TransferResult> {
   const res = await fetch(`${API_URL}/optimize/transfers`, {
     method: "POST",
@@ -100,6 +101,7 @@ export async function fetchTransferSuggestions(
       free_transfers: freeTransfers,
       max_transfers: maxTransfers,
       chip: chip ?? null,
+      budget_m: budgetM ?? null,
     }),
     cache: "no-store",
   });
@@ -232,6 +234,37 @@ export async function fetchAccuracy(event: number): Promise<AccuracyResult> {
   if (!res.ok) {
     const body = await res.text();
     throw new Error(`Failed to fetch accuracy: ${res.status} ${body}`);
+  }
+  return res.json();
+}
+
+export type ImportedPlayer = {
+  id: number;
+  web_name: string;
+  team_id: number;
+  team_short_name: string;
+  position: "GKP" | "DEF" | "MID" | "FWD";
+  cost_m: number;
+};
+
+export type ImportedTeam = {
+  entry_id: number;
+  entry_name: string;
+  manager_name: string;
+  event: number;
+  squad_ids: number[];
+  captain_id: number | null;
+  bank_m: number;
+  squad_value_m: number;
+  total_budget_m: number;
+  players: ImportedPlayer[];
+};
+
+export async function importTeam(entryId: number): Promise<ImportedTeam> {
+  const res = await fetch(`${API_URL}/import/${entryId}`, { cache: "no-store" });
+  if (!res.ok) {
+    const body = await res.json().catch(() => null);
+    throw new Error(body?.detail ?? `Failed to import team: ${res.status}`);
   }
   return res.json();
 }

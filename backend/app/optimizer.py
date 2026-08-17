@@ -98,6 +98,7 @@ def optimize_squad(
     max_transfers: int = 2,
     captain_multiplier: int = 2,
     bench_boost: bool = False,
+    budget_override: float | None = None,
 ) -> dict:
     """Build the best squad/XI/captain. With existing_squad_ids, instead optimizes
     around that squad: budget is capped at the existing squad's value (not the full
@@ -109,7 +110,13 @@ def optimize_squad(
     bench_boost=True scores all 15 squad players instead of just the starting XI.
     Wildcard/free hit aren't separate params — see module docstring — call this
     with existing_squad_ids and free_transfers/max_transfers set high enough that
-    the hit never applies (15 covers it, a squad can't have more transfers)."""
+    the hit never applies (15 covers it, a squad can't have more transfers).
+
+    budget_override, if given, replaces the computed existing-squad-value budget.
+    The default (sum of the existing squad's own costs) ignores money already
+    banked, since a from-scratch-built squad in this app has none to speak of.
+    A real imported FPL squad does have a bank balance though — pass
+    squad_value + bank as budget_override to account for it correctly."""
     prob = pulp.LpProblem("fpl_squad", pulp.LpMaximize)
 
     squad = {p.id: pulp.LpVariable(f"squad_{p.id}", cat="Binary") for p in players}
@@ -131,10 +138,13 @@ def optimize_squad(
     for pos, n in SQUAD_SIZE.items():
         prob += pulp.lpSum(squad[p.id] for p in players if p.position == pos) == n
 
-    # Budget: existing squad's own value if transferring, full budget if building from scratch
+    # Budget: existing squad's own value if transferring, full budget if building from scratch,
+    # or an explicit override (e.g. a real imported squad's value + bank).
     budget = BUDGET_M
     if existing_squad_ids:
         budget = sum(by_id[i].cost_m for i in existing_squad_ids if i in by_id)
+    if budget_override is not None:
+        budget = budget_override
     prob += pulp.lpSum(by_id[i].cost_m * squad[i] for i in squad) <= budget
 
     # Max 3 per real team

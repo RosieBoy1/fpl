@@ -34,6 +34,7 @@ Endpoints:
 - `GET /optimize/horizon?weeks=5` — one static squad/XI held across the next `weeks` gameweeks, captain re-optimized per gameweek (v3, partial — see below)
 - `POST /predictions/snapshot?event=N` — record current xP predictions for gameweek N (idempotent, call again before the deadline to refresh)
 - `GET /predictions/accuracy?event=N` — compare snapshotted predictions against actual FPL points once gameweek N has finished (MAE/RMSE/bias/correlation)
+- `GET /import/{entry_id}` — import a real FPL manager's current squad + bank balance by team ID (only works once a gameweek's picks are published — see "Import a real FPL team" below)
 
 ## Frontend setup
 
@@ -122,12 +123,14 @@ the bundled CBC binary works fine). See `_pick_solver()` in `optimizer.py`.
 ## Optimizer v2 (transfer suggestions)
 
 `POST /optimize/transfers` (MODEL_SPEC v2 scope) takes an existing 15-man squad and finds the
-highest-value 1-2 transfers: budget is capped at the existing squad's own value (not the full
-£100m — no persisted "money in the bank" concept yet, a documented simplification), transfer
-count is capped at `max_transfers`, and each transfer beyond `free_transfers` costs a -4pt hit
-that the solver weighs against the xP gained (declines the transfer if the hit isn't worth it —
-verified this directly: a ~3.9xP upgrade was accepted at 1 free transfer but correctly declined
-at 0 free transfers, since -4 hit > 3.9 gain).
+highest-value 1-2 transfers: budget defaults to the existing squad's own value (squads built
+inside the app have no separate "money in the bank" concept, since they always spend the full
+£100m budget), transfer count is capped at `max_transfers`, and each transfer beyond
+`free_transfers` costs a -4pt hit that the solver weighs against the xP gained (declines the
+transfer if the hit isn't worth it — verified this directly: a ~3.9xP upgrade was accepted at 1
+free transfer but correctly declined at 0 free transfers, since -4 hit > 3.9 gain). An optional
+`budget_m` field overrides the default budget — used by the real-team import flow below, which
+has an actual bank balance to account for.
 
 There's no saved-squad/auth system yet (that's brief section 3 step 6, "Polish"), so the
 frontend's transfer UI treats whatever the "Build optimal squad" button just produced as the
@@ -150,6 +153,34 @@ a name + 15 FPL player ids; `/squads` CRUD endpoints validate the id count and t
 exist. The `/optimize` page's "Suggest transfers" section operates on an "active squad" that's
 either the just-built optimal squad or a loaded saved squad — save one, then later load it back
 and ask for transfer suggestions against it.
+
+## Import a real FPL team
+
+`GET /import/{entry_id}` pulls a real manager's current squad by their FPL team (entry) ID via
+`/entry/{id}/` + `/entry/{id}/event/{n}/picks/`, then the `/optimize/import` page feeds it
+straight into `/optimize/transfers` using their *actual* budget (squad value + bank via
+`budget_m`), not the "sum of the squad's own cost" approximation the rest of the app uses for
+squads built inside it — fixes the "no persisted money in the bank" simplification called out
+above, for real imported squads specifically.
+
+**Real, load-bearing timing constraint, confirmed live against the actual API while building
+this:** FPL does not publish a gameweek's picks until its transfer deadline passes. Right now,
+for every entry, `current_event` is `null` and `entered_events` is empty — `/import/{id}` for
+any real team currently returns a clear 400 ("No picks published yet...") rather than a
+confusing error, which is *expected* behavior right now, not a bug — this will start working for
+real once GW1's deadline passes. `import_entry_squad()` (`team_import.py`) tries the manager's
+`current_event` first, falling back to GW1 if that's not set yet.
+
+Verified two ways given the above: the parsing logic (`import_entry_squad`) and the endpoint's
+DB-enrichment logic (`/import/{id}`) directly against a mocked FPL response shaped like the real
+one, confirming squad/captain/bank/value extraction and the `budget_m` override actually change
+the optimizer's spending ceiling (re-ran `/optimize/transfers` with and without `budget_m` on
+the same squad and got different, budget-appropriate transfer suggestions); and the real,
+currently-reachable error paths (invalid entry ID, no picks published yet) directly against the
+live FPL API — both confirmed working end-to-end through the actual browser UI. The happy-path
+UI (squad display, budget summary, transfer suggestions) was also verified in-browser with a
+temporary mock of `import_entry_squad`, reverted before committing (confirmed via diff against
+a backup — the shipped code makes real API calls only).
 
 ## Optimizer v3 (multi-gameweek horizon — partial)
 
@@ -252,10 +283,13 @@ team, so difficulty differs only by home/away until real results come in — exp
 - [x] Historical model accuracy tracking (snapshot + compare once a gameweek finishes — none has yet)
 - [x] Chip logic — triple captain, bench boost, wildcard, free hit (single-gameweek, not
       auto-placed across a horizon)
+- [x] Import a real FPL team by entry ID, with real budget (squad value + bank) fed into
+      the transfer optimizer — works once a gameweek's picks are published, not yet right now
 
 ## What's left
 
 - Auto-placing a chip across a multi-gameweek horizon ("which future gameweek should I use my
   wildcard in") — a separate, combinatorial squad-selection problem.
-- Real end-to-end accuracy validation — waits for GW1 to actually finish (2026-08-21 kickoff).
+- Real end-to-end accuracy validation and team import — both wait for GW1 to actually happen
+  (2026-08-21 kickoff, picks publish once its deadline passes).
 - Auth was intentionally skipped (brief marks it optional); saved squads are single-user.

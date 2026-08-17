@@ -13,6 +13,7 @@ from app.fixture_difficulty import compute_team_ratings, fixtures_by_team_map
 from app.ingest import refresh_all
 from app.models import Fixture, Player, SavedSquad, Team
 from app.optimizer import HorizonPlayerInput, OptimizerInput, optimize_squad, optimize_squad_horizon
+from app.team_import import import_entry_squad
 from app.xp_model import expected_points_for_fixture, expected_points_over_horizon
 
 app = FastAPI(title="FPL Companion API")
@@ -163,14 +164,19 @@ class TransferRequest(BaseModel):
     free_transfers: int = 1
     max_transfers: int = 2
     chip: Optional[Literal["wildcard", "free_hit", "triple_captain", "bench_boost"]] = None
+    # Total budget (squad value + bank) for a real imported squad. Omit for
+    # squads built inside the app, which default to "sum of the squad's own
+    # player costs" (no separate bank concept for those).
+    budget_m: Optional[float] = None
 
 
 @app.post("/optimize/transfers")
 def optimize_transfers(req: TransferRequest, db: Session = Depends(get_db)):
     """Given an existing 15-man squad, suggest the highest-value transfers
-    (MODEL_SPEC v2 scope): budget is capped at the existing squad's own value,
-    transfer count is capped at max_transfers, and each transfer beyond
-    free_transfers costs a -4pt hit weighed against the xP gain.
+    (MODEL_SPEC v2 scope): budget is capped at the existing squad's own value
+    (or budget_m if given — see TransferRequest), transfer count is capped at
+    max_transfers, and each transfer beyond free_transfers costs a -4pt hit
+    weighed against the xP gain.
 
     chip applies a v3 chip for this gameweek: wildcard/free_hit remove the
     transfer cap and hit entirely (mathematically identical to each other —
@@ -203,9 +209,47 @@ def optimize_transfers(req: TransferRequest, db: Session = Depends(get_db)):
         max_transfers=max_transfers,
         captain_multiplier=captain_multiplier,
         bench_boost=bench_boost,
+        budget_override=req.budget_m,
     )
     result["chip"] = req.chip
     return _attach_team_names(result, teams)
+
+
+@app.get("/import/{entry_id}")
+def import_team(entry_id: int, db: Session = Depends(get_db)):
+    """Import a real FPL manager's current squad by team (entry) ID, for
+    feeding into /optimize/transfers with their real budget (squad value +
+    bank). FPL only publishes a gameweek's picks after its transfer deadline
+    passes, so this won't work before the season starts or before GW1's
+    deadline — that's a real FPL API limitation, not a bug here."""
+    try:
+        imported = import_entry_squad(entry_id)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+
+    known_ids = {pid for (pid,) in db.query(Player.id).all()}
+    unknown = set(imported["squad_ids"]) - known_ids
+    if unknown:
+        raise HTTPException(
+            400,
+            f"Player id(s) {sorted(unknown)} from this squad aren't in our data yet — "
+            "try POST /refresh to pull the latest FPL data, then import again.",
+        )
+
+    players = db.query(Player).filter(Player.id.in_(imported["squad_ids"])).all()
+    teams = {t.id: t for t in db.query(Team).all()}
+    players_out = [
+        {
+            "id": p.id,
+            "web_name": p.web_name,
+            "team_id": p.team_id,
+            "team_short_name": teams[p.team_id].short_name,
+            "position": p.position,
+            "cost_m": p.now_cost / 10,
+        }
+        for p in players
+    ]
+    return {**imported, "players": players_out}
 
 
 @app.get("/optimize/horizon")
