@@ -61,18 +61,25 @@ via env vars. Deploy with Render's **New +** → **Blueprint**, pointed at this 
   created automatically on first deploy with no manual step. Verified locally by running that
   exact command against a fresh, empty SQLite DB — all 3 migrations applied cleanly and the API
   came up serving correctly afterward.
-- **`FRONTEND_URL`** (backend) and **`NEXT_PUBLIC_API_URL`** (frontend) are set to each other's
-  predictable `https://<service-name>.onrender.com` URLs, derived from this file's `name:`
-  fields — Render's blueprint spec has no way to interpolate a full URL from `fromService`
-  (only bare hostname), so this is the standard pragmatic approach. If you rename a service or
-  attach a custom domain, update the other service's matching env var. CORS
-  (`main.py`) always allows `localhost:3000` in addition to `FRONTEND_URL`, so local dev isn't
-  affected by whatever's deployed.
+- **`FRONTEND_URL`** (backend) and **`NEXT_PUBLIC_API_URL`** (frontend) are wired to each other
+  dynamically via `fromService` + `envVarKey: RENDER_EXTERNAL_URL` — Render auto-injects
+  `RENDER_EXTERNAL_URL` into every web service with its own full public URL. This is **not** the
+  same as `fromService`'s `property` field (`host`/`port`/`hostport`) — those are private-network
+  values, unreachable from a browser, which is the wrong tool here since the frontend's fetches
+  run client-side. `RENDER_EXTERNAL_URL` stays correct even if Render silently assigns a
+  different subdomain than the `name:` field suggests, which it does when a name collides with
+  someone else's service — names must be globally unique across all of Render, not just this
+  repo (this happened in practice: `fpl-backend` collided and Render assigned
+  `fpl-backend-roie.onrender.com` instead, which broke a prior hardcoded-URL version of this
+  file). CORS (`main.py`) always allows `localhost:3000` in addition to `FRONTEND_URL`, so local
+  dev isn't affected by whatever's deployed.
 - `NEXT_PUBLIC_API_URL` is a **build-time** value (Next.js inlines `NEXT_PUBLIC_*` vars into the
-  client bundle at `next build`, not read at runtime) — Render exposes a service's `envVars` to
-  its own build step, so this works without extra wiring. Verified locally: built the frontend
-  with `NEXT_PUBLIC_API_URL=https://fpl-backend.onrender.com` set and confirmed that exact string
-  (not the local `.env.local` value) landed in the compiled JS output.
+  client bundle at `next build`, not read at runtime) — Render exposes a service's `envVars`
+  (including `fromService`-derived ones) to its own build step, so this works without extra
+  wiring. Verified locally: built the frontend with `NEXT_PUBLIC_API_URL` set to a Render-style
+  URL and confirmed that exact string (not the local `.env.local` value) landed in the compiled
+  JS output — confirms the mechanism, though the specific dynamic `fromService` resolution can
+  only be verified on an actual Render deploy.
 - **Free-tier note**: Render's free Postgres databases are deleted 30 days after creation unless
   upgraded to a paid plan — fine for evaluating this, not for leaving it running long-term.
 

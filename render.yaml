@@ -8,10 +8,15 @@
 # creation unless upgraded to a paid plan — fine for evaluating this, not for
 # leaving it running long-term. Bump `plan:` below when that matters.
 #
-# Predictable-URL note: NEXT_PUBLIC_API_URL and FRONTEND_URL below are set to
-# Render's default `https://<service-name>.onrender.com` URLs, derived from
-# the `name:` fields in this file. If you rename a service or attach a custom
-# domain, update the other service's matching env var to match.
+# Cross-service URLs (NEXT_PUBLIC_API_URL, FRONTEND_URL below) are wired via
+# fromService + envVarKey: RENDER_EXTERNAL_URL — Render auto-injects
+# RENDER_EXTERNAL_URL into every web service with its own full public URL
+# (e.g. https://fpl-backend-roie.onrender.com), so these stay correct even
+# if Render assigns a different subdomain than the `name:` field suggests
+# (it does this silently when a name collides with someone else's service —
+# names must be globally unique across all of Render, not just this repo).
+# fromService's other property (host/port/hostport) is private-network only
+# and won't resolve from a browser, which is what broke this the first time.
 
 databases:
   - name: fpl-db
@@ -41,7 +46,10 @@ services:
       - key: FPL_API_BASE
         value: https://fantasy.premierleague.com/api
       - key: FRONTEND_URL
-        value: https://fpl-frontend.onrender.com
+        fromService:
+          type: web
+          name: fpl-frontend
+          envVarKey: RENDER_EXTERNAL_URL
 
   - type: web
     name: fpl-frontend
@@ -57,4 +65,7 @@ services:
       - key: NODE_VERSION
         value: 20.18.0
       - key: NEXT_PUBLIC_API_URL
-        value: https://fpl-backend.onrender.com
+        fromService:
+          type: web
+          name: fpl-backend
+          envVarKey: RENDER_EXTERNAL_URL
